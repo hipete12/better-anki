@@ -32,6 +32,9 @@ class OfflineEngine(val pack: Pack, initialEvents: List<OfflineEvent> = emptyLis
     }
 
     val log: List<OfflineEvent> get() = events
+    /** The study day the engine is on, and today's per-deck counts (to carry into the pack after a sync). */
+    val currentDay: Long get() = day
+    fun todayCounts(): List<PackDeckToday> = done.map { (did, d) -> PackDeckToday(did, d[0], d[1], d[2], d[3]) }
     fun content(cardId: Long) = content[cardId]
     fun card(cardId: Long) = cards[cardId]
     fun isMarked(cardId: Long) = content[cardId]?.let { marked[it.nid] } ?: false

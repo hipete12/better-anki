@@ -111,9 +111,12 @@ data class OfflineEvent(
     val marked: Boolean? = null,
 )
 
-/** Everything the device has done offline since its base, plus the id of a sync in flight (so a retry is idempotent). */
+/**
+ * Everything the device has done offline since its base. While a sync is in flight, `pendingSyncId` and
+ * `pendingCount` pin that batch (the first `pendingCount` events), so a retry sends exactly the same batch.
+ */
 @Serializable
-data class OfflineLog(val events: List<OfflineEvent> = emptyList(), val pendingSyncId: String? = null)
+data class OfflineLog(val events: List<OfflineEvent> = emptyList(), val pendingSyncId: String? = null, val pendingCount: Int = 0)
 
 @Serializable
 data class SyncRequest(

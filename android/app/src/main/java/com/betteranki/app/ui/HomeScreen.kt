@@ -173,7 +173,10 @@ fun DecksTab(app: AppState) {
                     }
                 }
             }
-            error?.let { item { ErrorBox(it, Modifier.padding(16.dp)) } }
+            item { OfflineBanner(app, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) }
+            if (error != null && !app.online && app.offline.engine != null) {
+                item { OfflineDecks(app, Modifier.padding(horizontal = 16.dp)) }
+            } else error?.let { item { ErrorBox(it, Modifier.padding(16.dp)) } }
             if (data == null && error == null) item { Box(Modifier.height(300.dp)) { Loading() } }
             data?.let { d ->
                 item {
@@ -397,6 +400,7 @@ fun StatsTab(app: AppState) {
 // ---------------- Settings ----------------
 @Composable
 fun SettingsTab(app: AppState) {
+    var confirmSignOut by remember { mutableStateOf(false) }
     var cfg by remember { mutableStateOf<AppConfig?>(null) }
     var sessions by remember { mutableStateOf<List<SessionInfo>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -453,12 +457,20 @@ fun SettingsTab(app: AppState) {
                 }
             }
         }
+        item { OfflineSettings(app) }
         item {
-            OutlinedButton(onClick = { scope.launch { app.signOut() } }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(10.dp)) {
+            OutlinedButton(onClick = { if (app.offline.pending > 0) confirmSignOut = true else scope.launch { app.signOut() } }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(10.dp)) {
                 Text("Sign out")
             }
         }
     }
+    if (confirmSignOut) AlertDialog(
+        onDismissRequest = { confirmSignOut = false },
+        title = { Text("Sign out?") },
+        text = { Text("${app.offline.pending} offline action${if (app.offline.pending == 1) " hasn't" else "s haven't"} synced yet. Signing out removes offline data from this device, including ${if (app.offline.pending == 1) "it" else "them"}.") },
+        confirmButton = { TextButton(onClick = { confirmSignOut = false; scope.launch { app.signOut() } }) { Text("Sign out", color = Color(0xFFDC2626)) } },
+        dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") } },
+    )
 }
 
 @Composable
