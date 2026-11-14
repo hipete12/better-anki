@@ -150,6 +150,16 @@ describe("HTTP API", () => {
     expect(m[1]).not.toContain(setup.token);
     expect(await j(fetch(m[1] + up.filename), true)).toBe("PNGDATA");
     expect((await fetch(m[1].replace(/media\/[^/]+/, "media/forged") + up.filename)).status).toBe(401);
+    // live change events require auth and deliver changes
+    expect((await fetch(`${base}/api/events`)).status).toBe(401);
+    const ev = await fetch(`${base}/api/events`, { headers: auth });
+    const reader = ev.body!.getReader();
+    await reader.read(); // hello
+    await fetch(`${base}/api/decks`, { method: "POST", headers: auth, body: JSON.stringify({ name: "Live" }) });
+    const chunk = new TextDecoder().decode((await reader.read()).value);
+    expect(chunk).toContain("event: change");
+    expect(chunk).toContain("decks");
+    await reader.cancel();
     srv.stop();
 
     // restart: locked until the device token is presented

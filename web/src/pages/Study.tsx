@@ -308,7 +308,7 @@ export default function Study() {
       {card ? (
         <>
           <div className="flex-1 min-h-0 relative">
-            <CardFrame ref={frame} key={`${card.id}-${showAnswer ? "a" : "q"}`} html={showAnswer ? (answerPage ?? card.answer) : card.question} onKey={handleKey} className="absolute inset-0 w-full h-full border-0" />
+            <CardFrame ref={frame} key={`${card.id}-${showAnswer ? "a" : "q"}`} html={showAnswer ? (answerPage ?? card.answer) : card.question} onKey={handleKey} onMessage={(type) => type === "showAnswer" && reveal()} className="absolute inset-0 w-full h-full border-0" />
           </div>
           <footer className="border-t border-app bg-panel px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <div className="mx-auto max-w-xl">
