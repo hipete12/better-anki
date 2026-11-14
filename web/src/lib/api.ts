@@ -199,6 +199,8 @@ export interface BrowseRow {
   flags: number;
   /** One state per card; see cardState() on the server. */
   state: CardState;
+  /** Display order layout the card uses ("Default" unless it was moved to a layout). */
+  layout: string;
   queue: number;
   type: number;
   marked: boolean;

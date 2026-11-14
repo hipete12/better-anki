@@ -27,6 +27,7 @@ const COLUMNS: { key: keyof BrowseRow; label: string; title?: string; sort?: str
   { key: "lapses", label: "Lapses", sort: "lapses", cards: true },
   { key: "notetype", label: "Note Type", sort: "notetype" },
   { key: "template", label: "Card type", sort: "template", cards: true },
+  { key: "layout", label: "Display order", sort: "layout" },
   { key: "cards", label: "Cards", notes: true },
   { key: "tags", label: "Tags" },
   { key: "created", label: "Created", sort: "created" },
@@ -409,6 +410,10 @@ function BrowseSidebar({ onSearch, current }: { onSearch: (q: string) => void; c
   const decks = useApi(() => api.get<{ id: number; name: string; kind: number }[]>("/api/decks/list"), [], { live: ["decks"] });
   const nts = useApi(() => api.get<{ id: number; name: string }[]>("/api/notetypes"), [], { live: ["notetypes"] });
   const tags = useApi(() => api.get<string[]>("/api/tags"), [], { live: ["notes", "import"] });
+  const layouts = useApi(() => api.get<{ notetypeId: number; notetype: string; layouts: { notetypeId: number; name: string; isDefault: boolean }[] }[]>("/api/layouts"), [], { live: ["notetypes", "cards", "notes"] });
+  // a layout is a copy of its note type, so filtering by layout is a note-type search on the exact name
+  const ntQuery = (name: string) => `note:"${name.replace(/[\\"*_]/g, "\\$&")}"`;
+  const ntName = (id: number) => nts.data?.find((n) => n.id === id)?.name;
   const Item = ({ q, label, icon, depth = 0 }: { q: string; label: React.ReactNode; icon?: React.ReactNode; depth?: number }) => (
     <button onClick={() => onSearch(q)} className={cx("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-left truncate", current === q ? "bg-panel-2 text-app font-medium" : "text-muted hover:text-app hover:bg-panel-2")} style={{ paddingLeft: 8 + depth * 12 }}>
       {icon && <span className="[&>svg]:size-3.5 shrink-0">{icon}</span>}
@@ -462,6 +467,22 @@ function BrowseSidebar({ onSearch, current }: { onSearch: (q: string) => void; c
           <Item key={n.id} q={`note:"${n.name}"`} label={n.name} />
         ))}
       </Section>
+      {!!layouts.data?.length && (
+        <Section title="Display order">
+          {layouts.data.map((f) => {
+            const names = f.layouts.map((l) => ntName(l.notetypeId)).filter((n): n is string => !!n);
+            return (
+              <div key={f.notetypeId}>
+                <Item q={names.length > 1 ? `(${names.map(ntQuery).join(" OR ")})` : ntQuery(f.notetype)} label={f.notetype} />
+                {f.layouts.map((l) => {
+                  const name = ntName(l.notetypeId);
+                  return name ? <Item key={l.notetypeId} q={ntQuery(name)} label={l.name} depth={1} /> : null;
+                })}
+              </div>
+            );
+          })}
+        </Section>
+      )}
       <Section title="Tags">
         {tags.data?.length ? tags.data.map((t) => <Item key={t} q={`tag:"${t}"`} label={t.split("::").pop()} depth={t.split("::").length - 1} />) : <div className="px-2 text-xs text-muted">No tags</div>}
       </Section>

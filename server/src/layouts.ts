@@ -41,6 +41,34 @@ function selection(col: Collection, cardIds: number[]): Selection | { reason: st
   return { base, tmpl: [...tmpls][0], cards: rows };
 }
 
+/** Each note type's layout: its family's base note type and the layout name ("Default" for the base itself). */
+export function layoutNames(col: Collection): Map<number, { baseId: number; base: string; name: string; isDefault: boolean }> {
+  const meta = layoutMeta(col);
+  const out = new Map<number, { baseId: number; base: string; name: string; isDefault: boolean }>();
+  for (const nt of col.notetypes()) {
+    const m = meta[nt.id];
+    const base = m && col.notetype(m.base);
+    out.set(nt.id, base ? { baseId: base.id, base: base.name, name: m.name, isDefault: false } : { baseId: nt.id, base: nt.name, name: "Default", isDefault: true });
+  }
+  return out;
+}
+
+/** Note types that have layout copies, each with its layouts (Default first) and how many cards use each. */
+export function layoutFamilies(col: Collection) {
+  const names = layoutNames(col);
+  const counts = new Map(col.db.query<{ ntid: number; n: number }, []>("SELECT n.ntid, count(*) n FROM cards c JOIN notes n ON n.id = c.nid GROUP BY n.ntid").all().map((r) => [r.ntid, r.n]));
+  const families = new Map<number, { notetypeId: number; notetype: string; layouts: { notetypeId: number; name: string; isDefault: boolean; cards: number }[] }>();
+  for (const [ntid, l] of names) {
+    if (l.isDefault) continue;
+    const fam = families.get(l.baseId) ?? { notetypeId: l.baseId, notetype: l.base, layouts: [{ notetypeId: l.baseId, name: "Default", isDefault: true, cards: counts.get(l.baseId) ?? 0 }] };
+    fam.layouts.push({ notetypeId: ntid, name: l.name, isDefault: false, cards: counts.get(ntid) ?? 0 });
+    families.set(l.baseId, fam);
+  }
+  return [...families.values()]
+    .map((f) => ({ ...f, layouts: [f.layouts[0], ...f.layouts.slice(1).sort((a, b) => a.name.localeCompare(b.name))] }))
+    .sort((a, b) => a.notetype.localeCompare(b.notetype));
+}
+
 /** The layouts the cards can use: the note type they came from ("Default") and its layout copies. */
 export function layoutOptions(col: Collection, cardIds: number[]) {
   const sel = selection(col, cardIds);

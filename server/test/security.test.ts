@@ -166,6 +166,9 @@ describe("HTTP API", () => {
     expect(br.rows.map((r: { order: number }) => r.order)).toEqual([3, 2, 1]);
     expect(br.rows[0].sortField).toBe("third");
     expect(br.rows[0].state).toBe("new");
+    expect(br.rows[0].layout).toBe("Default");
+    expect((await j(fetch(`${base}/api/browse?q=&sort=layout`, { headers: auth }))).rows).toHaveLength(3);
+    expect(await j(fetch(`${base}/api/layouts`, { headers: auth }))).toEqual([]);
     srv.stop();
 
     // restart: locked until the device token is presented

@@ -11,7 +11,7 @@ import { renderCloze } from "../src/render/cloze";
 import { buildCardPage } from "../src/render/page";
 import { searchCardIds, searchRows } from "../src/search";
 import { cardState, CARD_STATES } from "../src/api/routes";
-import { layoutOptions, createLayout, assignLayout, duplicateNotes } from "../src/layouts";
+import { layoutOptions, createLayout, assignLayout, duplicateNotes, layoutFamilies, layoutNames } from "../src/layouts";
 import { importApkg } from "../src/importer/apkg";
 import { exportApkg } from "../src/exporter/apkg";
 import { importCsv, previewCsv } from "../src/importer/text";
@@ -339,6 +339,24 @@ describe("display order (layouts) and duplicate", () => {
     expect(copy.templates[1].qfmt).toBe("{{Back}}?");
     expect(copy.templates[0].qfmt).toBe(rev.templates[0].qfmt);
     expect(cardsOf().map((c) => [c.id, c.ord])).toEqual([[fwd.id, 0], [back.id, 1], [other.id, 0]]);
+  });
+  test("layout families for the sidebar, names for the column, and filtering by layout", () => {
+    for (let i = 0; i < 3; i++) col.addNote(basic().id, [`es${i}`, `en${i}`], [], 1);
+    const [a, b, c] = cardsOf();
+    expect(layoutFamilies(col)).toEqual([]); // no layouts yet: nothing to list
+    const r1 = createLayout(col, { cardIds: [a.id], name: "Reverse_1 \"quoted\"", qfmt: "{{Back}}", afmt: "{{Front}}" });
+    const r2 = createLayout(col, { cardIds: [b.id], name: "Audio first", qfmt: "{{Back}}!", afmt: "{{Front}}" });
+    const fam = layoutFamilies(col);
+    expect(fam).toHaveLength(1);
+    expect(fam[0].notetype).toBe("Basic");
+    expect(fam[0].layouts.map((l) => [l.name, l.cards])).toEqual([["Default", 1], ["Audio first", 1], ['Reverse_1 "quoted"', 1]]);
+    expect(layoutNames(col).get(r2.notetypeId)).toMatchObject({ name: "Audio first", base: "Basic", isDefault: false });
+    expect(layoutNames(col).get(basic().id)).toMatchObject({ name: "Default", isDefault: true });
+    // the sidebar's search: note:"<name>" with \ " * _ escaped matches exactly that layout
+    const q = (name: string) => `note:"${name.replace(/[\\"*_]/g, "\\$&")}"`;
+    expect(searchCardIds(col, q("Basic"))).toEqual([c.id]);
+    expect(searchCardIds(col, q(col.notetype(r1.notetypeId)!.name))).toEqual([a.id]);
+    expect(searchCardIds(col, `(${q("Basic")} OR ${q(col.notetype(r2.notetypeId)!.name)})`).sort()).toEqual([b.id, c.id].sort());
   });
   test("duplicate makes new notes created now, with fresh cards in the same deck", () => {
     const deck = col.ensureDeck("Dup").id;

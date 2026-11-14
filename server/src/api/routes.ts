@@ -18,7 +18,7 @@ import { trainingSequences, recomputeMemory } from "../sched/memory";
 import { evaluate, type OptimizeResult } from "../sched/optimizer";
 import { FSRS, FSRS6_DEFAULT_PARAMS } from "../sched/fsrs";
 import { STOCK_NOTETYPES } from "../stock";
-import { layoutOptions, assignLayout, createLayout, changeNotetype, duplicateNotes } from "../layouts";
+import { layoutOptions, assignLayout, createLayout, changeNotetype, duplicateNotes, layoutNames, layoutFamilies } from "../layouts";
 import { buildPack, syncOffline, type SyncRequest } from "../offline";
 import { existsSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { join, extname } from "node:path";
@@ -401,6 +401,7 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
   r.post("/api/offline/sync", async (ctx) => syncOffline(col, await ctx.json<SyncRequest>()));
 
   // ---------------- display order (layouts) ----------------
+  r.get("/api/layouts", () => layoutFamilies(col));
   r.post("/api/layouts/options", async (ctx) => layoutOptions(col, (await ctx.json<{ cardIds: number[] }>()).cardIds ?? []));
   r.post("/api/layouts/assign", async (ctx) => {
     const b = await ctx.json<{ cardIds: number[]; notetypeId: number }>();
@@ -732,6 +733,8 @@ function browse(col: Collection, ctx: Ctx) {
     .iterate())
     order.set(o.id, mode === "notes" ? o.note : o.card);
   const homeDeck = (r: SearchRow) => (col.deck(r.odid || r.did)?.name ?? "").toLowerCase();
+  const layouts = layoutNames(col);
+  const layoutOf = (r: SearchRow) => layouts.get(r.ntid);
   const key = (r: SearchRow): number | string => {
     switch (sort) {
       case "order": // grouped by home deck, so numbers from different decks don't interleave
@@ -758,6 +761,11 @@ function browse(col: Collection, ctx: Ctx) {
         return tmplName(r).toLowerCase();
       case "state":
         return CARD_STATES.indexOf(cardState(r, today));
+      case "layout": {
+        // grouped by note type, Default first, then layouts by name
+        const l = layoutOf(r);
+        return `${(l?.base ?? "").toLowerCase()}\u0000${l && !l.isDefault ? l.name.toLowerCase() : ""}`;
+      }
       case "difficulty":
         return r.difficulty ?? -1;
       case "stability":
@@ -810,6 +818,7 @@ function browse(col: Collection, ctx: Ctx) {
       tags: parseTags(r.tags),
       flags: r.flags & 7,
       state: cardState(r, today),
+      layout: layoutOf(r)?.name ?? "Default",
       queue: r.queue,
       type: r.type,
       marked: parseTags(r.tags).some((t) => t.toLowerCase() === "marked"),
