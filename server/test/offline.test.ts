@@ -120,6 +120,17 @@ describe("sync", () => {
     expect(col.db.query<{ n: number }, [number, number]>("SELECT rev_done n FROM deck_today WHERE did=? AND day=?").get(did, col.today())?.n).toBe(1);
   });
 
+  test("the result brings the device's pack up to date", () => {
+    const { did, ids } = setup(4, 3);
+    const p = pack([did]);
+    answerCard(col, ids[1], 3, 1000); // changed on the web
+    col.removeNotes([card(ids[2]).nid]); // deleted on the web
+    const r = syncOffline(col, request(p, [{ kind: "answer", cardId: ids[0], ease: 3, at: Date.now() - 60_000 }], { packCardIds: p.cards.map((c) => c.id) })) as any;
+    expect(r.cards.map((c: { id: number }) => c.id).sort()).toEqual([ids[0], ids[1]].sort());
+    expect(r.cards.find((c: { id: number }) => c.id === ids[1])).toMatchObject({ ivl: card(ids[1]).ivl, due: card(ids[1]).due, reps: card(ids[1]).reps });
+    expect(r.missing).toEqual([ids[2]]);
+  });
+
   test("a retried sync isn't applied twice", () => {
     const { did, ids } = setup(2, 1);
     const p = pack([did]);
@@ -278,23 +289,23 @@ describe("offline HTTP API", () => {
     const srv = createServer({ data, port: 0, host: "127.0.0.1", web: null, quiet: true });
     try {
       const base = `http://127.0.0.1:${srv.server.port}`;
-      const setup = await (await fetch(`${base}/api/auth/setup`, { method: "POST", body: JSON.stringify({ username: "me", password: "longpassword", device: "phone" }) })).json();
+      const setup: any = await (await fetch(`${base}/api/auth/setup`, { method: "POST", body: JSON.stringify({ username: "me", password: "longpassword", device: "phone" }) })).json();
       const auth = { authorization: `Bearer ${setup.token}` };
       const post = (path: string, body: unknown, headers: Record<string, string> = {}) => fetch(`${base}${path}`, { method: "POST", headers: { ...auth, ...headers }, body: JSON.stringify(body) });
-      const nts = await (await fetch(`${base}/api/notetypes`, { headers: auth })).json();
+      const nts: any = await (await fetch(`${base}/api/notetypes`, { headers: auth })).json();
       const basicId = nts.find((n: { name: string }) => n.name === "Basic").id;
       await post("/api/notes", { notetypeId: basicId, deckId: 1, fields: ["hola", "hello"] });
 
       const res = await post("/api/offline/pack", { deckIds: [1] }, { "accept-encoding": "gzip" });
       expect(res.status).toBe(200);
       expect(res.headers.get("content-encoding")).toBe("gzip");
-      const p = await res.json(); // fetch decompresses
+      const p: any = await res.json(); // fetch decompresses
       expect(p.cards).toHaveLength(1);
       expect(p.cards[0].question).toContain("hola");
       expect(p.cards[0].question).toContain("__BA_NIGHT_CARD__");
       expect(p.mediaBase).toContain("/media/");
 
-      const sync = await (
+      const sync: any = await (
         await post("/api/offline/sync", {
           syncId: "s1",
           base: p.base,

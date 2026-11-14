@@ -158,6 +158,8 @@ export interface SyncRequest {
   resolutions?: Record<string, Resolution>;
   /** Only report what would happen. */
   dryRun?: boolean;
+  /** Every card in the device's pack: the result returns those that changed, so the pack stays current. */
+  packCardIds?: number[];
 }
 
 /** An event on the server's timeline: corrected time, and whether it's a server review being replayed (merge). */
@@ -208,7 +210,7 @@ export function syncOffline(col: Collection, req: SyncRequest) {
   }
   for (const id of conflicts) assert(baseById.has(id), "The device didn't send its copy of a changed card; download again and retry");
   const plan: Plan = { base: req.base, events, conflicts, deleted, baseById };
-  const counts = { reviews: events.filter((e) => e.kind === "answer" && !deleted.includes(e.cardId)).length, cards: touched.length - deleted.length };
+  const counts = { reviews: events.filter((e) => e.kind === "answer" && !deleted.includes(e.cardId)).length, touched: touched.length - deleted.length };
   const dropped = deleted.map((cardId) => ({ cardId, reason: "deleted" as const, actions: events.filter((e) => e.cardId === cardId).length }));
 
   const resolutions = req.resolutions ?? {};
@@ -221,9 +223,21 @@ export function syncOffline(col: Collection, req: SyncRequest) {
   col.tx(() => {
     apply(col, plan, resolutions);
     const newBase = nextVersion(col);
+    const packIds = [...new Set((req.packCardIds ?? []).map(Number).filter(Number.isFinite))];
+    const changed: BaseCard[] = [];
+    const missing: number[] = [];
+    for (let i = 0; i < packIds.length; i += 500) {
+      const chunk = packIds.slice(i, i + 500);
+      const rows = col.db.query<SyncedCard, []>(`SELECT * FROM cards WHERE id IN (${chunk.join(",")})`).all();
+      const found = new Set(rows.map((r) => r.id));
+      for (const r of rows) if (r.usn > req.base) changed.push(schedulingOf(r));
+      for (const id of chunk) if (!found.has(id)) missing.push(id);
+    }
     result = {
       status: "ok",
       newBase,
+      cards: changed,
+      missing,
       ...counts,
       autoMerged: touched.length - conflicts.length - deleted.length,
       resolved: conflicts.map((cardId) => ({ cardId, resolution: resolutions[cardId] })),
@@ -240,8 +254,13 @@ export function syncOffline(col: Collection, req: SyncRequest) {
 interface SyncResult {
   status: "ok";
   newBase: number;
+  /** Current scheduling of pack cards that changed since the base (including the ones just synced). */
+  cards: BaseCard[];
+  /** Pack cards that no longer exist. */
+  missing: number[];
   reviews: number;
-  cards: number;
+  /** Cards the offline actions touched (that still exist). */
+  touched: number;
   autoMerged: number;
   resolved: { cardId: number; resolution: Resolution }[];
   dropped: { cardId: number; reason: "deleted"; actions: number }[];
