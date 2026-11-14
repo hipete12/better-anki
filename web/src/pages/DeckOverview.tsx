@@ -66,11 +66,11 @@ export default function DeckOverview() {
           </div>
 
           {due ? (
-            <Button variant="primary" size="lg" className="w-full sm:w-auto sm:px-10" onClick={() => navigate(`/study/${deck.id}`)}>
+            <Button variant="primary" size="lg" className="w-full" onClick={() => navigate(`/study/${deck.id}`)}>
               <Play className="size-4" /> Study now
             </Button>
           ) : (
-            <p className="text-sm text-muted">
+            <p className="w-0 min-w-full text-sm text-muted">
               Nothing due right now.
               {deck.kind === 0 && (
                 <>
@@ -82,9 +82,10 @@ export default function DeckOverview() {
               )}
             </p>
           )}
-          {data.limits && <p className="mt-3 text-xs text-faint">{data.limits.newLeft} new and {data.limits.revLeft} reviews left in today's limits</p>}
+          {data.limits && <p className="w-0 min-w-full mt-3 text-xs text-faint">{data.limits.newLeft} new and {data.limits.revLeft} reviews left today</p>}
         </div>
-        <CardTrend trend={data.trend} />
+        {/* top lines up with the counts, bottom with the limits line */}
+        <CardTrend trend={data.trend} chartHeight={118} className="md:-mt-2" />
       </div>
 
       <div className="mt-8 flex flex-wrap gap-2">

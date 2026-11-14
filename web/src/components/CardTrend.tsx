@@ -11,7 +11,7 @@ const TREND_SERIES: Series[] = [
 ];
 
 /** How many cards are learning, young and mature each day (new cards left out); hidden until something is studied. */
-export default function CardTrend({ trend, className }: { trend: HomeSummary["trend"]; className?: string }) {
+export default function CardTrend({ trend, className, chartHeight }: { trend: HomeSummary["trend"]; className?: string; chartHeight?: number }) {
   const [showTable, setShowTable] = useState(false);
   const first = trend.findIndex((d) => d.learning + d.young + d.mature > 0);
   if (first < 0) return null; // nothing studied yet
@@ -62,7 +62,7 @@ export default function CardTrend({ trend, className }: { trend: HomeSummary["tr
           </table>
         </div>
       ) : (
-        <LineChart data={data} series={TREND_SERIES} xLabel={label} ariaLabel={`Cards by state over the last ${days.length} days. Today: ${last.learning} learning, ${last.young} young, ${last.mature} mature.`} />
+        <LineChart data={data} series={TREND_SERIES} height={chartHeight} xLabel={label} ariaLabel={`Cards by state over the last ${days.length} days. Today: ${last.learning} learning, ${last.young} young, ${last.mature} mature.`} />
       )}
     </section>
   );
