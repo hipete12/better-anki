@@ -236,6 +236,7 @@ export function syncOffline(col: Collection, req: SyncRequest) {
     result = {
       status: "ok",
       newBase,
+      serverTime: Date.now(),
       cards: changed,
       missing,
       ...counts,
@@ -254,6 +255,8 @@ export function syncOffline(col: Collection, req: SyncRequest) {
 interface SyncResult {
   status: "ok";
   newBase: number;
+  /** Server time of the sync (ms): the device's new download time for clamping later offline reviews. */
+  serverTime: number;
   /** Current scheduling of pack cards that changed since the base (including the ones just synced). */
   cards: BaseCard[];
   /** Pack cards that no longer exist. */
