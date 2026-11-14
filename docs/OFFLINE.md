@@ -61,6 +61,20 @@ The request contains `syncId`, `base`, the device clock at send time, the log, a
    - **Keep server**: drop the offline actions for that card.
 5. **Commit.** All of it happens in one transaction. If the server changed again between preview and commit and a new conflict has no choice yet, the commit is refused with a fresh preview (409).
 6. **Idempotent.** The result is stored under `syncId`. If the connection drops after the server applied a sync, the retry gets the stored result instead of recording the reviews twice.
-7. Afterwards the device gets a new base and refreshes its downloaded cards.
+7. **Afterwards.** The response includes the current state of every downloaded card that changed since the base, and the new base. The device updates its copy straight away, so it stays consistent even if the follow-up re-download fails. The device keeps its original download time as the lower bound for review times, because actions still in the log were recorded before this sync. It then re-downloads in the background for fresh due cards.
 
 Replay uses the normal answer path at the review's corrected time. Revlog ids and today's counts use that time, and sibling burying and leech handling apply as usual. Replay doesn't add to the server's undo stack.
+
+## Android client
+
+- **Download:** on a deck's page, choose **Download**. Downloaded decks stay current: the app re-downloads after each sync and every few hours when online.
+- **Going offline:** when the server can't be reached, the deck list shows your downloaded decks and studying uses the downloaded copy. The study screen shows an "Offline" banner. If the connection drops mid-session, the app switches over without losing the answer you just gave.
+- **Syncing:** happens automatically when the server is reachable and no offline session is open. A banner on the deck list shows actions waiting to sync, or conflicts to review.
+- **Storage:** on the device, the pack, the action log and media are encrypted with a random data key wrapped by a non-exportable Android Keystore key. Signing out removes them; Settings warns first if anything hasn't synced.
+- **Batches:** a batch keeps its id and size until the server confirms it, so retries are idempotent even if the app is killed mid-sync.
+
+## Testing
+
+- **Server:** `cd server && bun test` covers change tracking, packs, clean replay, clock correction, idempotent retries, each conflict choice, deleted cards and the HTTP API (`test/offline.test.ts`).
+- **Scheduler port:** `cd android && ./gradlew testDebugUnitTest` checks the Kotlin scheduler against 144 vectors from the server's own scheduler, 576 outcomes in all (regenerate them with `bun scripts/sched-vectors.ts`). It also covers the offline queue (`OfflineEngineTest`).
+- **End to end:** done on an emulator against a local server: download, stop the server, study offline (including undo and media), change the same cards on the server, then resolve the conflicts and check the review log.

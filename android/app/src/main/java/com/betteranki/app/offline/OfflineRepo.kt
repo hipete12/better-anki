@@ -201,7 +201,8 @@ class OfflineRepo(context: Context, private val api: Api) {
                     val synced = OfflineEngine(pack, batch) // today's counts including the synced batch, not later actions
                     val updated = pack.copy(
                         base = res.newBase ?: pack.base,
-                        serverTime = res.serverTime ?: System.currentTimeMillis(),
+                        // serverTime stays the download time: it's the lower bound for review times, and actions still
+                        // in the log (recorded before this sync) must keep their real times
                         cards = pack.cards.filter { it.id !in gone }.map { c -> changedCards[c.id]?.let { c.withSched(it) } ?: c },
                         today = synced.currentDay,
                         deckToday = synced.todayCounts(),

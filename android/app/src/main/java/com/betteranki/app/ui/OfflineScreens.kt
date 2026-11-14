@@ -82,7 +82,7 @@ fun SyncConflictsScreen(app: AppState) {
                 val n = res.conflicts.size
                 Text(
                     "$n card${if (n == 1) " was" else "s were"} changed both here and on the server since you went offline. Choose what to keep." +
-                        if (res.autoMerged > 0) " ${res.autoMerged} other card${if (res.autoMerged == 1) "" else "s"} merge automatically." else "",
+                        if (res.autoMerged > 0) " ${res.autoMerged} other card${if (res.autoMerged == 1) " merges" else "s merge"} automatically." else "",
                     fontSize = 14.sp, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (res.dropped.isNotEmpty()) Text("${res.dropped.size} card${if (res.dropped.size == 1) " was" else "s were"} deleted on the server; their offline reviews will be skipped.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))

@@ -83,8 +83,9 @@ fun StudyScreen(app: AppState, deckId: Long, startOffline: Boolean = false) {
     // offline: study from the downloaded copy; actions are logged and synced later (docs/OFFLINE.md)
     var offline by remember { mutableStateOf(startOffline) }
     DisposableEffect(offline) {
-        if (offline) app.offline.studying++
-        onDispose { if (offline) { app.offline.studying--; app.syncSoon() } }
+        val active = offline // the value for this effect; `offline` itself may have changed by the time it's disposed
+        if (active) app.offline.studying++
+        onDispose { if (active) { app.offline.studying--; app.syncSoon() } }
     }
     val q = "?night=${if (dark) 1 else 0}&platform=android"
     var state by remember { mutableStateOf<StudyState?>(null) }
