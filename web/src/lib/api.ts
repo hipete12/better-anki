@@ -195,11 +195,14 @@ export interface BrowseRow {
   modified: string;
   tags: string[];
   flags: number;
+  /** One state per card; see cardState() on the server. */
+  state: CardState;
   queue: number;
   type: number;
   marked: boolean;
   cards: number;
 }
+export type CardState = "new" | "learning" | "review" | "due" | "suspended" | "buried" | "marked" | "leech";
 export interface NoteData {
   id: number;
   guid: string;

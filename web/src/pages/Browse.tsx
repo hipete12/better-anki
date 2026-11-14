@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Search, Tag, Flag, ChevronDown, ChevronUp, MoreHorizontal, PauseCircle, Trash2, FolderInput, Tags, CalendarClock, RotateCcw, ListOrdered, Replace, Download, Filter, Info, Star, SlidersHorizontal, X, Eye, EyeOff, PanelLeft } from "lucide-react";
-import { api, type BrowseRow, type NoteData } from "../lib/api";
+import { api, type BrowseRow, type CardState, type NoteData } from "../lib/api";
 import { useApi, useLocalStorage, useIsDark } from "../lib/hooks";
 import { Button, cx, Field, IconButton, Input, Loading, Menu, Modal, Select, Switch, Tabs, useDialogs, useToast, Badge } from "../components/ui";
 import NoteEditor from "../components/NoteEditor";
@@ -10,8 +10,9 @@ import CardInfoDialog from "../components/CardInfoDialog";
 import ExportDialog from "../components/ExportDialog";
 import FilteredDeckDialog from "../components/FilteredDeckDialog";
 
-const COLUMNS: { key: keyof BrowseRow; label: string; sort?: string; cls?: string; notes?: boolean; cards?: boolean }[] = [
-  { key: "sortField", label: "Sort Field", sort: "sortField", cls: "min-w-48" },
+const COLUMNS: { key: keyof BrowseRow; label: string; sort?: string; cls?: string; center?: boolean; notes?: boolean; cards?: boolean }[] = [
+  { key: "sortField", label: "Card", sort: "sortField", cls: "min-w-48" },
+  { key: "state", label: "State", sort: "state", cls: "w-16", center: true, cards: true },
   { key: "question", label: "Question", cls: "min-w-48", cards: true },
   { key: "answer", label: "Answer", cls: "min-w-40", cards: true },
   { key: "deck", label: "Deck", sort: "deck" },
@@ -23,13 +24,24 @@ const COLUMNS: { key: keyof BrowseRow; label: string; sort?: string; cls?: strin
   { key: "reps", label: "Reviews", sort: "reps", cards: true },
   { key: "lapses", label: "Lapses", sort: "lapses", cards: true },
   { key: "notetype", label: "Note Type", sort: "notetype" },
-  { key: "template", label: "Card", sort: "template", cards: true },
+  { key: "template", label: "Card type", sort: "template", cards: true },
   { key: "cards", label: "Cards", notes: true },
   { key: "tags", label: "Tags" },
   { key: "created", label: "Created", sort: "created" },
   { key: "modified", label: "Modified", sort: "modified" },
 ];
-const DEFAULT_COLS = ["sortField", "deck", "due", "ivl", "ease", "tags"];
+const DEFAULT_COLS = ["sortField", "state", "deck", "due", "ivl", "ease", "tags"];
+/** State dots, in the server's sort order. Review (not due yet) is a hollow ring, due is filled. */
+const STATES: Record<CardState, { label: string; cls: string }> = {
+  new: { label: "New", cls: "bg-new" },
+  learning: { label: "Learning", cls: "bg-learn" },
+  review: { label: "Review (not due yet)", cls: "border-[1.5px] border-due" },
+  due: { label: "Due", cls: "bg-due" },
+  suspended: { label: "Suspended", cls: "bg-yellow-500 dark:bg-yellow-400" },
+  buried: { label: "Buried", cls: "bg-zinc-400 dark:bg-zinc-500" },
+  marked: { label: "Marked", cls: "bg-violet-600 dark:bg-violet-400" },
+  leech: { label: "Leech", cls: "bg-orange-600 dark:bg-orange-400" },
+};
 const FLAG_COLORS = ["", "#ef4444", "#f97316", "#22c55e", "#3b82f6", "#ec4899", "#14b8a6", "#a855f7"];
 const FLAG_NAMES = ["No flag", "Red", "Orange", "Green", "Blue", "Pink", "Turquoise", "Purple"];
 
@@ -40,6 +52,17 @@ export default function Browse() {
   const [mode, setMode] = useLocalStorage<"cards" | "notes">("ba.browse.mode", "cards");
   const [sort, setSort] = useLocalStorage<{ col: string; desc: boolean }>("ba.browse.sort", { col: "created", desc: true });
   const [cols, setCols] = useLocalStorage<string[]>("ba.browse.cols", DEFAULT_COLS);
+  // show the State column once for people with saved column choices from before it existed
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("ba.browse.stateCol")) return;
+      localStorage.setItem("ba.browse.stateCol", "1");
+    } catch {
+      return;
+    }
+    if (!cols.includes("state")) setCols(cols.flatMap((c) => (c === "sortField" ? [c, "state"] : [c])));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [rows, setRows] = useState<BrowseRow[]>([]);
   const [ids, setIds] = useState<number[]>([]);
   const [total, setTotal] = useState(0);
@@ -254,8 +277,8 @@ export default function Browse() {
                   <tr>
                     <th className="w-1.5 border-b border-app" />
                     {visibleCols.map((c) => (
-                      <th key={c.key} className={cx("text-left font-medium text-xs text-muted px-3 py-2 border-b border-app whitespace-nowrap select-none", c.sort && "cursor-pointer hover:text-app")} onClick={() => c.sort && setSort({ col: c.sort, desc: sort.col === c.sort ? !sort.desc : false })}>
-                        <span className="inline-flex items-center gap-1">
+                      <th key={c.key} className={cx("font-medium text-xs text-muted px-3 py-2 border-b border-app whitespace-nowrap select-none", c.center ? "text-center" : "text-left", c.sort && "cursor-pointer hover:text-app")} onClick={() => c.sort && setSort({ col: c.sort, desc: sort.col === c.sort ? !sort.desc : false })}>
+                        <span className={cx("inline-flex items-center gap-1", c.center && "justify-center")}>
                           {c.label}
                           {sort.col === c.sort && (sort.desc ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />)}
                         </span>
@@ -278,8 +301,10 @@ export default function Browse() {
                           <div className="w-1.5 h-9" style={{ background: FLAG_COLORS[r.flags] || "transparent" }} />
                         </td>
                         {visibleCols.map((c) => (
-                          <td key={c.key} className={cx("px-3 py-2 border-b border-app max-w-80 truncate", c.cls)}>
-                            {c.key === "tags" ? (
+                          <td key={c.key} className={cx("px-3 py-2 border-b border-app max-w-80 truncate", c.center && "text-center", c.cls)}>
+                            {c.key === "state" ? (
+                              <span role="img" aria-label={STATES[r.state].label} title={STATES[r.state].label} className={cx("inline-block size-2.5 rounded-full align-middle", STATES[r.state].cls)} />
+                            ) : c.key === "tags" ? (
                               <span className="flex gap-1">
                                 {r.tags.slice(0, 3).map((t) => (
                                   <Badge key={t}>{t}</Badge>
@@ -376,14 +401,20 @@ function BrowseSidebar({ onSearch, current }: { onSearch: (q: string) => void; c
         <Item q="edited:1" label="Edited today" />
       </Section>
       <Section title="Card state">
-        <Item q="is:new" label="New" icon={<span className="block size-2 rounded-full bg-blue-500" />} />
-        <Item q="is:learn" label="Learning" icon={<span className="block size-2 rounded-full bg-orange-500" />} />
-        <Item q="is:review" label="Review" icon={<span className="block size-2 rounded-full bg-green-600" />} />
-        <Item q="is:due" label="Due" icon={<span className="block size-2 rounded-full bg-green-400" />} />
-        <Item q="is:suspended" label="Suspended" icon={<span className="block size-2 rounded-full bg-amber-400" />} />
-        <Item q="is:buried" label="Buried" icon={<span className="block size-2 rounded-full bg-zinc-400" />} />
-        <Item q="tag:marked" label="Marked" icon={<span className="block size-2 rounded-full bg-amber-500" />} />
-        <Item q="tag:leech" label="Leeches" icon={<span className="block size-2 rounded-full bg-red-500" />} />
+        {(
+          [
+            ["is:new", "New", "new"],
+            ["is:learn", "Learning", "learning"],
+            ["is:review", "Review", "review"],
+            ["is:due", "Due", "due"],
+            ["is:suspended", "Suspended", "suspended"],
+            ["is:buried", "Buried", "buried"],
+            ["tag:marked", "Marked", "marked"],
+            ["tag:leech", "Leeches", "leech"],
+          ] as const
+        ).map(([q, label, state]) => (
+          <Item key={q} q={q} label={label} icon={<span className={cx("block size-2 rounded-full", STATES[state].cls)} />} />
+        ))}
       </Section>
       <Section title="Flags">
         {FLAG_NAMES.slice(1).map((n, i) => (

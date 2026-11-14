@@ -9,7 +9,8 @@ import { nextCard, answerCard, undo, countsFor } from "../src/sched/queue";
 import { renderCard, cardOrdsForNote, compareTypedAnswer } from "../src/render/template";
 import { renderCloze } from "../src/render/cloze";
 import { buildCardPage } from "../src/render/page";
-import { searchCardIds } from "../src/search";
+import { searchCardIds, searchRows } from "../src/search";
+import { cardState, CARD_STATES } from "../src/api/routes";
 import { importApkg } from "../src/importer/apkg";
 import { exportApkg } from "../src/exporter/apkg";
 import { importCsv, previewCsv } from "../src/importer/text";
@@ -271,6 +272,23 @@ describe("search", () => {
     expect(searchCardIds(col, "(dog or cat) -gato").length).toBe(1);
     expect(searchCardIds(col, "c*a").length).toBeGreaterThanOrEqual(2);
     expect(searchCardIds(col, "added:1").length).toBe(3);
+  });
+});
+
+describe("browser card state", () => {
+  test("one state per card, tags first", () => {
+    for (let i = 0; i < 8; i++) col.addNote(basic().id, [`s${i}`, "b"], i === 6 ? ["marked"] : i === 7 ? ["leech", "marked"] : [], 1);
+    const ids = col.db.query<{ id: number }, []>("SELECT id FROM cards ORDER BY id").all().map((r) => r.id);
+    const t = col.today();
+    const set = (i: number, sql: string, ...args: number[]) => col.db.query(`UPDATE cards SET ${sql} WHERE id=?`).run(...args, ids[i]);
+    set(1, "type=1, queue=1, due=?", NOW + 60);
+    set(2, "type=2, queue=2, ivl=5, due=?", t + 3);
+    set(3, "type=2, queue=2, ivl=5, due=?", t);
+    set(4, "type=2, queue=-1, ivl=5, due=?", t);
+    set(5, "type=2, queue=-2, ivl=5, due=?", t + 1);
+    set(7, "type=2, queue=-1, ivl=5, due=?", t);
+    const byId = new Map(searchRows(col, "").map((r) => [r.id, cardState(r, t)]));
+    expect(ids.map((id) => byId.get(id))).toEqual([...CARD_STATES]);
   });
 });
 

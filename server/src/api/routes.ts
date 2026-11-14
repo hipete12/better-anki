@@ -689,6 +689,21 @@ function dueString(col: Collection, c: SearchRow, today: number): { text: string
   return { text, sort };
 }
 
+/** Browser card states, in their sort order. */
+export const CARD_STATES = ["new", "learning", "review", "due", "suspended", "buried", "marked", "leech"] as const;
+export type CardState = (typeof CARD_STATES)[number];
+/** One state per card. Tags win (leech, then marked), then suspended/buried, then the scheduling state. */
+export function cardState(r: SearchRow, today: number): CardState {
+  const tags = parseTags(r.tags).map((t) => t.toLowerCase());
+  if (tags.includes("leech")) return "leech";
+  if (tags.includes("marked")) return "marked";
+  if (r.queue === Queue.Suspended) return "suspended";
+  if (r.queue === Queue.SchedBuried || r.queue === Queue.UserBuried) return "buried";
+  if (r.type === CardType.New) return "new";
+  if (r.type === CardType.Learn || r.type === CardType.Relearn) return "learning";
+  return (r.odid ? r.odue || r.due : r.due) <= today ? "due" : "review";
+}
+
 function browse(col: Collection, ctx: Ctx) {
   const q = ctx.query.get("q") ?? "";
   const mode = ctx.query.get("mode") === "notes" ? "notes" : "cards";
@@ -730,6 +745,8 @@ function browse(col: Collection, ctx: Ctx) {
         return ntName(r.ntid).toLowerCase();
       case "template":
         return tmplName(r).toLowerCase();
+      case "state":
+        return CARD_STATES.indexOf(cardState(r, today));
       case "difficulty":
         return r.difficulty ?? -1;
       case "stability":
@@ -780,6 +797,7 @@ function browse(col: Collection, ctx: Ctx) {
       modified: new Date((mode === "notes" ? r.nmtime : r.mtime) * 1000).toISOString().slice(0, 10),
       tags: parseTags(r.tags),
       flags: r.flags & 7,
+      state: cardState(r, today),
       queue: r.queue,
       type: r.type,
       marked: parseTags(r.tags).some((t) => t.toLowerCase() === "marked"),
