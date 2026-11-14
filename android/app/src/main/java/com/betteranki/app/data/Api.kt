@@ -69,6 +69,8 @@ class ApiException(val status: Int, message: String) : Exception(message)
 class Api(var server: String, var token: String?) {
     val json = Json { ignoreUnknownKeys = true; explicitNulls = false; encodeDefaults = true }
     var onUnauthorized: (() -> Unit)? = null
+    /** Told whether the server answered (true) or couldn't be reached (false), to drive offline mode. */
+    var onReachability: ((Boolean) -> Unit)? = null
 
     suspend fun <T> request(method: String, path: String, body: JsonElement?, ser: KSerializer<T>, timeoutMs: Int = 30000): T = withContext(Dispatchers.IO) {
         val conn = try {
@@ -89,6 +91,7 @@ class Api(var server: String, var token: String?) {
                 conn.outputStream.use { it.write(body.toString().toByteArray()) }
             }
             val code = conn.responseCode
+            onReachability?.invoke(true)
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use(BufferedReader::readText) ?: ""
             if (code !in 200..299) {
                 val msg = try {
@@ -101,6 +104,7 @@ class Api(var server: String, var token: String?) {
             }
             json.decodeFromString(ser, text.ifEmpty { "{}" })
         } catch (e: IOException) {
+            onReachability?.invoke(false)
             throw ApiException(0, "Can't reach the server at $server")
         } finally {
             conn.disconnect()
@@ -116,7 +120,7 @@ class Api(var server: String, var token: String?) {
      * Server-sent change events over an authenticated streaming request.
      * Blocks (on IO) until the connection drops; invoke in a coroutine loop.
      */
-    suspend fun streamEvents(onChange: (List<String>) -> Unit) = withContext(Dispatchers.IO) {
+    suspend fun streamEvents(onOpen: () -> Unit = {}, onChange: (List<String>) -> Unit) = withContext(Dispatchers.IO) {
         val conn = URL(server.trimEnd('/') + "/api/events").openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 8000
@@ -124,6 +128,7 @@ class Api(var server: String, var token: String?) {
             conn.setRequestProperty("Authorization", "Bearer $token")
             conn.setRequestProperty("Accept", "text/event-stream")
             if (conn.responseCode != 200) throw ApiException(conn.responseCode, "events")
+            onOpen()
             val reader = conn.inputStream.bufferedReader()
             var event = ""
             while (true) {

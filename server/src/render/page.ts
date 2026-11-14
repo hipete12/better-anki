@@ -12,7 +12,12 @@ export interface PageOptions {
   side: "question" | "answer";
   platform?: string;
   questionHtml?: string; // used to determine answer-only sounds
+  /** Offline pages: write night-mode class placeholders the device fills in (see NIGHT_TOKENS). */
+  nightTokens?: boolean;
 }
+
+/** Placeholders in offline card pages; the device replaces them with the night classes or "". */
+export const NIGHT_TOKENS = { html: "__BA_NIGHT_HTML__", card: "__BA_NIGHT_CARD__" } as const;
 
 const VIDEO_EXT = /\.(mp4|webm|mkv|mov|ogv|avi|m4v)$/i;
 
@@ -75,7 +80,7 @@ export function buildCardPage(o: PageOptions): string {
     autoplayFrom = o.html.includes(o.questionHtml) || /<hr id=["']?answer/.test(o.html) ? qCount : 0;
   }
   const needsMath = /\\\(|\\\[|\[\$\]|\[\$\$\]|\[latex\]/.test(o.html);
-  const classes = ["card", `card${o.ord + 1}`, o.platform ? `ba-${o.platform}` : "", o.night ? "nightMode night_mode" : ""]
+  const classes = ["card", `card${o.ord + 1}`, o.platform ? `ba-${o.platform}` : "", o.nightTokens ? NIGHT_TOKENS.card : o.night ? "nightMode night_mode" : ""]
     .filter(Boolean)
     .join(" ");
   const state = {
@@ -86,7 +91,7 @@ export function buildCardPage(o: PageOptions): string {
     side: o.side,
   };
   return `<!doctype html>
-<html class="${o.night ? "night-mode" : ""}"><head><meta charset="utf-8">
+<html class="${o.nightTokens ? NIGHT_TOKENS.html : o.night ? "night-mode" : ""}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="${escapeHtml(o.mediaBase)}">
 <style>${BASE_CSS}</style>

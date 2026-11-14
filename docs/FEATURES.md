@@ -87,8 +87,8 @@ Check database, empty cards, check media (unused/missing), automatic encrypted b
 | Browse | ✅ full | 🟡 search + edit |
 | Stats | ✅ full | 🟡 summary, heatmap, forecast, retention |
 | Note types, deck options, import, maintenance | ✅ | ⛔ (use web) |
-| Offline study | ⛔ | ⛔ |
+| Offline study (download decks, study, sync with per-card conflict resolution) | ⛔ (planned) | ✅ ([OFFLINE.md](OFFLINE.md)) |
 
 ## Not planned / known gaps
 
-Add-ons, multiple profiles (one account and collection per server), offline mode, the image-occlusion editor, a tag management UI, and a change-note-type UI.
+Add-ons, multiple profiles (one account and collection per server), offline mode in the web app, adding or editing notes offline, the image-occlusion editor, a tag management UI, and a change-note-type UI.

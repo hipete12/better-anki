@@ -19,11 +19,12 @@ import { evaluate, type OptimizeResult } from "../sched/optimizer";
 import { FSRS, FSRS6_DEFAULT_PARAMS } from "../sched/fsrs";
 import { STOCK_NOTETYPES } from "../stock";
 import { layoutOptions, assignLayout, createLayout, changeNotetype, duplicateNotes } from "../layouts";
+import { buildPack, syncOffline, type SyncRequest } from "../offline";
 import { existsSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0-beta.1";
 
 export interface ServerOptions {
   /** Issues short-lived, HMAC-signed media URL tokens bound to a session. */
@@ -44,7 +45,7 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
   const r = new Router();
   const csvUploads = new Map<string, { text: string; created: number }>();
 
-  const renderFor = (c: CardRow, ctx: Ctx, extra: { night?: boolean; platform?: string; typed?: string | null } = {}) => {
+  const renderFor = (c: CardRow, ctx: Ctx, extra: { night?: boolean; platform?: string; typed?: string | null; nightTokens?: boolean } = {}) => {
     const note = col.note(c.nid)!;
     const nt = col.notetype(note.ntid)!;
     const conf = col.configForCard(c);
@@ -59,8 +60,8 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
     }
     const autoplay = !conf.disableAutoplay;
     return {
-      question: buildCardPage({ html: rendered.question, css: rendered.css, ord: c.ord, night, mediaBase: base, autoplay, side: "question", platform }),
-      answer: buildCardPage({ html: answerHtml, css: rendered.css, ord: c.ord, night, mediaBase: base, autoplay, side: "answer", platform, questionHtml: rendered.question }),
+      question: buildCardPage({ html: rendered.question, css: rendered.css, ord: c.ord, night, mediaBase: base, autoplay, side: "question", platform, nightTokens: extra.nightTokens }),
+      answer: buildCardPage({ html: answerHtml, css: rendered.css, ord: c.ord, night, mediaBase: base, autoplay, side: "answer", platform, questionHtml: rendered.question, nightTokens: extra.nightTokens }),
       hasTypeAnswer: !!rendered.typeAnswer,
       questionText: stripHtml(rendered.question.replace(/<style[\s\S]*?<\/style>/gi, "")).slice(0, 300),
       answerText: stripHtml(answerHtml.replace(/<style[\s\S]*?<\/style>/gi, "")).slice(0, 300),
@@ -384,6 +385,20 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
     return { changed: changeNotetype(col, b.noteIds, b.notetypeId, b.fieldMap, b.templateMap) };
   });
   r.post("/api/notes/duplicate", async (ctx) => duplicateNotes(col, await ctx.json<{ cardIds?: number[]; noteIds?: number[] }>()));
+
+  // ---------------- offline study (docs/OFFLINE.md) ----------------
+  r.post("/api/offline/pack", async (ctx) => {
+    const b = await ctx.json<{ deckIds: number[]; days?: number; platform?: string }>();
+    const platform = b.platform ?? "android";
+    const pack = buildPack(col, b, (c) => {
+      const p = renderFor(c, ctx, { platform, nightTokens: true });
+      return { question: p.question, answer: p.answer, hasTypeAnswer: p.hasTypeAnswer, questionText: p.questionText };
+    }, mediaBaseFor(ctx, opts));
+    const body = JSON.stringify(pack);
+    if (!/\bgzip\b/.test(ctx.req.headers.get("accept-encoding") ?? "")) return new Response(body, { headers: { "content-type": "application/json; charset=utf-8" } });
+    return new Response(Bun.gzipSync(body), { headers: { "content-type": "application/json; charset=utf-8", "content-encoding": "gzip" } });
+  });
+  r.post("/api/offline/sync", async (ctx) => syncOffline(col, await ctx.json<SyncRequest>()));
 
   // ---------------- display order (layouts) ----------------
   r.post("/api/layouts/options", async (ctx) => layoutOptions(col, (await ctx.json<{ cardIds: number[] }>()).cardIds ?? []));

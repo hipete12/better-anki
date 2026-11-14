@@ -1,5 +1,6 @@
 package com.betteranki.app
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -24,6 +25,9 @@ import com.betteranki.app.ui.DeckOverviewScreen
 import com.betteranki.app.ui.EditNoteScreen
 import com.betteranki.app.ui.HomeScreen
 import com.betteranki.app.ui.StudyScreen
+import com.betteranki.app.ui.SyncConflictsScreen
+import com.betteranki.app.ui.NoticeToast
+import com.betteranki.app.offline.OfflineRepo
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -33,7 +37,9 @@ import kotlinx.coroutines.CancellationException
 sealed class Screen {
     data class Home(val tab: Int = 0) : Screen()
     data class Deck(val id: Long) : Screen()
-    data class Study(val id: Long) : Screen()
+    /** `offline`: study from the downloaded copy (no server needed). */
+    data class Study(val id: Long, val offline: Boolean = false) : Screen()
+    data object Conflicts : Screen()
     data class EditNote(val nid: Long) : Screen()
 }
 
@@ -45,15 +51,60 @@ class AppState : ViewModel() {
     val stack = mutableStateListOf<Screen>(Screen.Home())
     /** Bumped whenever the server reports a change; screens reload on change. */
     var changeTick by mutableIntStateOf(0)
+    /** Whether the server was reachable on the last request. */
+    var online by mutableStateOf(true)
+        private set
+    /** A short message shown over any screen (e.g. "Synced 12 offline reviews"). */
+    var notice by mutableStateOf<String?>(null)
+    lateinit var offline: OfflineRepo
+        private set
     private lateinit var store: SecureStore
     private var events: Job? = null
+    private var syncJob: Job? = null
 
-    fun init(store: SecureStore) {
+    fun init(store: SecureStore, context: Context) {
         if (loaded) return
         this.store = store
+        offline = OfflineRepo(context, api).also { it.load() }
+        api.onReachability = { ok -> if (ok != online) viewModelScope.launch { online = ok; if (ok) maybeSync() } }
         store.load()?.let { setCreds(it, persist = false) }
         api.onUnauthorized = { viewModelScope.launch { signOut(local = true) } }
+        syncJob = viewModelScope.launch {
+            delay(1500)
+            while (isActive) {
+                maybeSync()
+                delay(20_000)
+            }
+        }
         loaded = true
+    }
+
+    fun syncSoon() { viewModelScope.launch { delay(300); maybeSync() } }
+
+    private var syncing = false
+    /** Send offline reviews when the server is reachable and no offline session is open; keep the download fresh. */
+    suspend fun maybeSync() {
+        if (creds == null || syncing) return
+        syncing = true
+        try {
+            if (offline.pending > 0 && offline.studying == 0 && offline.conflicts == null) {
+                val r = offline.sync()
+                when (r?.status) {
+                    "ok" -> {
+                        val n = r.reviews
+                        notice = if (r.dropped.isNotEmpty()) "Synced $n offline reviews · ${r.dropped.size} deleted cards skipped" else "Synced $n offline review${if (n == 1) "" else "s"}"
+                        changeTick++
+                        try { offline.refresh() } catch (_: Exception) {}
+                    }
+                    "conflicts" -> notice = "Some offline reviews conflict with changes on the server"
+                }
+            } else if (offline.pending == 0 && offline.roots.isNotEmpty() && System.currentTimeMillis() - offline.downloadedAt > 6 * 3600_000L) {
+                offline.refresh()
+            }
+        } catch (_: Exception) {
+        } finally {
+            syncing = false
+        }
     }
 
     fun lastServer() = store.lastServer()
@@ -71,7 +122,7 @@ class AppState : ViewModel() {
         events = viewModelScope.launch {
             while (isActive) {
                 try {
-                    api.streamEvents { changeTick++ }
+                    api.streamEvents(onOpen = { viewModelScope.launch { online = true; maybeSync() } }) { changeTick++ }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -85,6 +136,9 @@ class AppState : ViewModel() {
         if (!local) try { api.post<kotlinx.serialization.json.JsonObject>("/api/auth/logout") } catch (_: Exception) {}
         events?.cancel()
         store.clear()
+        // offline data holds collection content: it goes with the session
+        offline.discardPending()
+        offline.removeAll()
         api.token = null
         creds = null
         stack.clear()
@@ -104,7 +158,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             BetterAnkiTheme {
                 val app: AppState = viewModel()
-                LaunchedEffect(Unit) { app.init(store) }
+                LaunchedEffect(Unit) { app.init(store, applicationContext) }
                 if (app.loaded) Root(app)
             }
         }
@@ -122,7 +176,9 @@ fun Root(app: AppState) {
     when (top) {
         is Screen.Home -> HomeScreen(app, top.tab)
         is Screen.Deck -> DeckOverviewScreen(app, top.id)
-        is Screen.Study -> StudyScreen(app, top.id)
+        is Screen.Study -> StudyScreen(app, top.id, top.offline)
         is Screen.EditNote -> EditNoteScreen(app, top.nid)
+        is Screen.Conflicts -> SyncConflictsScreen(app)
     }
+    NoticeToast(app)
 }

@@ -8,6 +8,8 @@ import android.os.Looper
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.MimeTypeMap
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -41,11 +43,12 @@ class CardController {
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun CardWebView(html: String, baseUrl: String, controller: CardController, modifier: Modifier = Modifier, onMessage: (String) -> Unit = {}, onLink: (String) -> Unit = {}) {
+fun CardWebView(html: String, baseUrl: String, controller: CardController, modifier: Modifier = Modifier, onMessage: (String) -> Unit = {}, onLink: (String) -> Unit = {}, offlineMedia: ((String) -> ByteArray?)? = null) {
     val bg = MaterialTheme.colorScheme.background.toArgb()
     val bridge = remember { Bridge() }
     bridge.onMessage = onMessage
     bridge.onLink = onLink
+    bridge.offlineMedia = offlineMedia
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -62,6 +65,17 @@ fun CardWebView(html: String, baseUrl: String, controller: CardController, modif
                 setBackgroundColor(bg)
                 addJavascriptInterface(bridge, "BetterAnkiAndroid")
                 webViewClient = object : WebViewClient() {
+                    // offline: card media comes from the encrypted local copy instead of the server
+                    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                        val media = bridge.offlineMedia ?: return null
+                        val path = request.url.path ?: return null
+                        val i = path.indexOf("/media/")
+                        if (i < 0) return null
+                        val name = request.url.lastPathSegment ?: return null
+                        val bytes = media(name) ?: return WebResourceResponse("text/plain", null, 404, "Not downloaded", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
+                        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: "application/octet-stream"
+                        return WebResourceResponse(mime, null, java.io.ByteArrayInputStream(bytes))
+                    }
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                         val url = request.url.toString()
                         if (url.startsWith("http://") || url.startsWith("https://")) bridge.onLink(url)
@@ -90,6 +104,7 @@ fun CardWebView(html: String, baseUrl: String, controller: CardController, modif
 class Bridge {
     var onMessage: (String) -> Unit = {}
     var onLink: (String) -> Unit = {}
+    var offlineMedia: ((String) -> ByteArray?)? = null
     private val main = Handler(Looper.getMainLooper())
 
     @JavascriptInterface

@@ -14,6 +14,7 @@ Highlights over stock Anki:
 - **Encrypted by design.** The collection, media, filenames and backups are AES-256-GCM encrypted at rest, and the key only ever exists in server memory. See [docs/SECURITY.md](docs/SECURITY.md).
 - **FSRS-6 by default**, with a built-in parameter optimizer, plus a load balancer and easy days. Classic SM-2 is still available.
 - **Real-time multi-device.** Answer a card on your phone and the web dashboard updates instantly.
+- **Offline study on Android.** Download decks, study without a connection, and sync later. The server replays your reviews at the times you made them. Cards that changed on both sides are shown with each side's changes, and you choose: merge both, keep offline, or keep the server's. See [docs/OFFLINE.md](docs/OFFLINE.md).
 - A modern, responsive UI with dark mode, keyboard-first study and a richer stats dashboard (heatmap, streaks, true retention, FSRS stability/difficulty/retrievability).
 - Reads every Anki package format, legacy and current (`.apkg`, `.colpkg`, `collection.anki21b` with zstd and protobuf). Exports `.apkg` files that Anki, AnkiDroid and AnkiMobile can import, verified against the official `anki` library.
 
@@ -73,8 +74,9 @@ On the emulator, the host's localhost is `http://10.0.2.2:8765` (the default on 
 ## Tests
 
 ```bash
-cd server && bun test                     # 32 tests: scheduler, FSRS, templates, search,
-                                          # import/export (real Anki fixtures), encryption, auth, HTTP API
+cd server && bun test                     # 55 tests: scheduler, FSRS, templates, search,
+                                          # import/export (real Anki fixtures), encryption, auth, HTTP API, offline sync
+cd android && ./gradlew testDebugUnitTest # offline scheduler (checked against the server's) and offline queue
 cd e2e && bun install
 bun ui-smoke.mjs http://localhost:8765 ./shots ../server/test/fixtures/modern.apkg   # drives the web UI (fresh server)
 ```

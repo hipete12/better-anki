@@ -57,6 +57,16 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import com.betteranki.app.AppState
 import com.betteranki.app.Screen
 import com.betteranki.app.data.StudyState
+import com.betteranki.app.data.StudyCard
+import com.betteranki.app.data.StudyDeck
+import com.betteranki.app.data.AnswerButton
+import com.betteranki.app.data.CardOptions
+import com.betteranki.app.data.Counts
+import com.betteranki.app.data.Today
+import com.betteranki.app.data.UndoStatus
+import com.betteranki.app.data.ApiException
+import com.betteranki.app.offline.intervalLabel
+import androidx.compose.runtime.DisposableEffect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -68,8 +78,15 @@ private fun mediaBaseOf(html: String, fallback: String): String =
     Regex("<base href=\"([^\"]+)\"").find(html)?.groupValues?.get(1)?.replace("&amp;", "&") ?: fallback
 
 @Composable
-fun StudyScreen(app: AppState, deckId: Long) {
+fun StudyScreen(app: AppState, deckId: Long, startOffline: Boolean = false) {
     val dark = isSystemInDarkTheme()
+    // offline: study from the downloaded copy; actions are logged and synced later (docs/OFFLINE.md)
+    var offline by remember { mutableStateOf(startOffline) }
+    DisposableEffect(offline) {
+        val active = offline // the value for this effect; `offline` itself may have changed by the time it's disposed
+        if (active) app.offline.studying++
+        onDispose { if (active) { app.offline.studying--; app.syncSoon() } }
+    }
     val q = "?night=${if (dark) 1 else 0}&platform=android"
     var state by remember { mutableStateOf<StudyState?>(null) }
     var showAnswer by remember { mutableStateOf(false) }
@@ -90,17 +107,57 @@ fun StudyScreen(app: AppState, deckId: Long) {
         answerHtml = null
         shownAt = System.currentTimeMillis()
     }
+    fun night(html: String) = html.replace("__BA_NIGHT_HTML__", if (dark) "night-mode" else "").replace("__BA_NIGHT_CARD__", if (dark) "nightMode night_mode" else "")
+    /** The same study state the server would send, built from the offline engine. */
+    fun offlineState(): StudyState? {
+        val e = app.offline.engine ?: return null
+        val now = System.currentTimeMillis() / 1000
+        val n = e.next(deckId, now)
+        val (count, ms, again) = e.today(now)
+        val card = n.card?.let { c ->
+            val pc = e.content(c.id)!!
+            val outs = e.outcomes(c.id, now)
+            val conf = e.context(c, now).conf
+            StudyCard(
+                id = c.id, nid = pc.nid, did = c.did, ord = pc.ord, type = c.type, queue = c.queue, flags = c.flags and 7, marked = e.isMarked(c.id),
+                tags = emptyList(), deckName = e.deck(c.did)?.name ?: "", queueName = n.queueName ?: "new", question = night(pc.question), answer = night(pc.answer),
+                hasTypeAnswer = false, buttons = (1..4).map { r -> AnswerButton(r, intervalLabel(outs.getValue(r).dueInSecs), outs.getValue(r).dueInSecs) },
+                options = CardOptions(showTimer = conf.showTimer, capAnswerSecs = conf.capAnswerSecs, autoplay = !conf.disableAutoplay, autoAdvanceQuestionSecs = conf.autoAdvanceQuestionSecs, autoAdvanceAnswerSecs = conf.autoAdvanceAnswerSecs, autoAdvanceAnswerAction = conf.autoAdvanceAnswerAction),
+            )
+        }
+        return StudyState(
+            deck = StudyDeck(deckId, e.deck(deckId)?.name ?: "", 0), counts = Counts(n.counts.new, n.counts.learn, n.counts.review), nextLearnDue = n.nextLearnDue,
+            buried = n.buried, undo = UndoStatus(null, app.offline.canUndo()), today = Today(count, ms, again), card = card,
+        )
+    }
+    fun goOffline(): Boolean {
+        if (!app.offline.isAvailable(deckId)) return false
+        offline = true
+        error = null
+        offlineState()?.let { apply(it) }
+        return true
+    }
     suspend fun load() {
-        try { apply(app.api.get<StudyState>("/api/study/$deckId$q")); error = null } catch (e: Exception) { error = e.message }
+        if (offline) { offlineState()?.let { apply(it) }; return }
+        try { apply(app.api.get<StudyState>("/api/study/$deckId$q")); error = null } catch (e: Exception) {
+            if (!(e is ApiException && e.status == 0 && goOffline())) error = e.message
+        }
     }
     LaunchedEffect(deckId, dark) { load() }
+    // when only a learning card is left, show it as soon as it's due
+    LaunchedEffect(state?.nextLearnDue, state?.card == null) {
+        val due = state?.nextLearnDue ?: return@LaunchedEffect
+        if (state?.card != null) return@LaunchedEffect
+        delay((due * 1000 - System.currentTimeMillis()).coerceAtLeast(0) + 500)
+        load()
+    }
     LaunchedEffect(toast) { if (toast != null) { delay(2500); toast = null } }
 
     val card = state?.card
     fun reveal() {
         val c = card ?: return
         if (showAnswer) return
-        if (c.hasTypeAnswer) {
+        if (c.hasTypeAnswer && !offline) {
             controller.getTyped { typed ->
                 scope.launch {
                     answerHtml = try {
@@ -114,23 +171,56 @@ fun StudyScreen(app: AppState, deckId: Long) {
             showAnswer = true
         }
     }
+    fun answerOffline(cardId: Long, ease: Int, timeMs: Long) {
+        val e = app.offline.record("answer", cardId, ease = ease, timeMs = timeMs)
+        e.lastLeech?.let { toast = if (it) "Leech: card suspended" else "Leech: card tagged" }
+        offlineState()?.let { apply(it) }
+    }
     fun answer(ease: Int) {
         val c = card ?: return
         if (busy || !showAnswer) return
+        val timeMs = System.currentTimeMillis() - shownAt
+        if (offline) return answerOffline(c.id, ease, timeMs)
         busy = true
         scope.launch {
             try {
-                val s = app.api.post<StudyState>("/api/study/$deckId/answer$q", buildJsonObject { put("cardId", c.id); put("ease", ease); put("timeMs", System.currentTimeMillis() - shownAt) })
+                val s = app.api.post<StudyState>("/api/study/$deckId/answer$q", buildJsonObject { put("cardId", c.id); put("ease", ease); put("timeMs", timeMs) })
                 if (s.answered?.leech == true) toast = if (s.answered.suspended) "Leech: card suspended" else "Leech: card tagged"
                 apply(s)
-            } catch (e: Exception) { toast = e.message } finally { busy = false }
+            } catch (e: Exception) {
+                // lost the connection mid-session: keep going from the downloaded copy if this card is in it
+                if (e is ApiException && e.status == 0 && app.offline.engine?.card(c.id) != null && app.offline.isAvailable(deckId)) {
+                    offline = true
+                    toast = "You're offline. Reviews will sync later."
+                    answerOffline(c.id, ease, timeMs)
+                } else toast = e.message
+            } finally { busy = false }
         }
     }
     fun undo() = scope.launch {
+        if (offline) {
+            val kind = app.offline.undo()
+            toast = when (kind) { null -> "Nothing to undo"; "answer" -> "Undid review"; else -> "Undid $kind" }
+            offlineState()?.let { apply(it) }
+            return@launch
+        }
         try { val s = app.api.post<StudyState>("/api/study/$deckId/undo$q"); s.undone?.let { toast = "Undid $it" }; apply(s) } catch (e: Exception) { toast = e.message }
     }
     fun action(act: String, extra: Map<String, Int> = emptyMap(), msg: String? = null) = scope.launch {
         val c = card ?: return@launch
+        if (offline) {
+            when (act) {
+                "bury", "buryNote", "suspend", "suspendNote" -> app.offline.record(act, c.id)
+                "flag" -> app.offline.record("flag", c.id, flag = if (c.flags == extra["flag"]) 0 else extra["flag"] ?: 0)
+                "mark" -> app.offline.record("mark", c.id, marked = !c.marked)
+                else -> { toast = "That needs a connection"; return@launch }
+            }
+            msg?.let { toast = it }
+            val e = app.offline.engine ?: return@launch
+            if (act == "flag" || act == "mark") state = state?.copy(card = c.copy(flags = (e.card(c.id)?.flags ?: 0) and 7, marked = e.isMarked(c.id)), undo = UndoStatus(null, app.offline.canUndo()))
+            else offlineState()?.let { apply(it) }
+            return@launch
+        }
         try {
             val s = app.api.post<StudyState>("/api/study/$deckId/action$q", buildJsonObject { put("cardId", c.id); put("action", act); extra.forEach { (k, v) -> put(k, v) } })
             msg?.let { toast = it }
@@ -156,7 +246,7 @@ fun StudyScreen(app: AppState, deckId: Long) {
                     if (card != null) Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
                         DropdownMenu(menu, { menu = false }) {
-                            DropdownMenuItem(text = { Text("Edit note") }, onClick = { menu = false; app.push(Screen.EditNote(card.nid)) })
+                            if (!offline) DropdownMenuItem(text = { Text("Edit note") }, onClick = { menu = false; app.push(Screen.EditNote(card.nid)) })
                             DropdownMenuItem(text = { Text("Replay audio") }, onClick = { menu = false; controller.replay() })
                             DropdownMenuItem(text = { Text(if (card.marked) "Unmark note" else "Mark note") }, onClick = { menu = false; action("mark") })
                             HorizontalDivider()
@@ -172,7 +262,7 @@ fun StudyScreen(app: AppState, deckId: Long) {
                             DropdownMenuItem(text = { Text("Bury note") }, onClick = { menu = false; action("buryNote", msg = "Note buried") })
                             DropdownMenuItem(text = { Text("Suspend card") }, onClick = { menu = false; action("suspend", msg = "Card suspended") })
                             DropdownMenuItem(text = { Text("Suspend note") }, onClick = { menu = false; action("suspendNote", msg = "Note suspended") })
-                            DropdownMenuItem(text = { Text("Reset (forget)") }, onClick = { menu = false; action("forget", msg = "Card reset") })
+                            if (!offline) DropdownMenuItem(text = { Text("Reset (forget)") }, onClick = { menu = false; action("forget", msg = "Card reset") })
                         }
                     }
                 }
@@ -184,11 +274,22 @@ fun StudyScreen(app: AppState, deckId: Long) {
                 }
             }
         }
+        if (offline) {
+            val pending = app.offline.pending
+            Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+                Text(
+                    "Offline · " + if (pending == 0) "reviews sync when you're back online" else "$pending review${if (pending == 1) "" else "s"} will sync when you're back online",
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         error?.let { ErrorBox(it, Modifier.padding(16.dp)) }
         val s = state
         when {
             s == null -> Loading(Modifier.weight(1f))
-            card == null -> Congrats(s, Modifier.weight(1f), onUnbury = { scope.launch { app.api.post<JsonObject>("/api/decks/$deckId/unbury"); load() } }, onBack = { app.pop() })
+            card == null -> Congrats(if (offline) s.copy(buried = 0) else s, Modifier.weight(1f), onUnbury = { scope.launch { app.api.post<JsonObject>("/api/decks/$deckId/unbury"); load() } }, onBack = { app.pop() })
             else -> {
                 val html = if (showAnswer) (answerHtml ?: card.answer) else card.question
                 CardWebView(
@@ -198,6 +299,7 @@ fun StudyScreen(app: AppState, deckId: Long) {
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     onMessage = { type -> if (type == "showAnswer") reveal() },
                     onLink = { pendingLink = it },
+                    offlineMedia = if (offline) app.offline::media else null,
                 )
                 Surface(color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
                     Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp)) {
