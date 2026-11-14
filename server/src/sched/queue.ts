@@ -357,7 +357,11 @@ export function undo(col: Collection): { label: string; cardId?: number } | null
 }
 
 // ---------------- answering ----------------
-export function answerCard(col: Collection, cardId: number, rating: Rating, timeMs: number, now = nowSecs()) {
+/**
+ * Answer a card. `now` is the review time (secs). Offline-sync replay passes the review's real time plus
+ * `revlogId` (its ms timestamp, made unique) and turns off undo/emit.
+ */
+export function answerCard(col: Collection, cardId: number, rating: Rating, timeMs: number, now = nowSecs(), opts: { revlogId?: number; undo?: boolean; emit?: boolean; countToday?: boolean } = {}) {
   const card = col.card(cardId);
   if (!card) throw new HttpError(404, "Card not found");
   if (card.queue < 0) throw new HttpError(409, "Card is suspended or buried");
@@ -403,7 +407,7 @@ export function answerCard(col: Collection, cardId: number, rating: Rating, time
       if (conf.leechAction === 0) c.queue = Queue.Suspended;
     }
     restoreCard(col, c);
-    let rid = Date.now();
+    let rid = opts.revlogId ?? Date.now();
     while (col.db.query("SELECT 1 FROM revlog WHERE id=?").get(rid)) rid++;
     col.db
       .query("INSERT INTO revlog(id,cid,ease,ivl,last_ivl,factor,time,type) VALUES (?,?,?,?,?,?,?,?)")
@@ -415,7 +419,7 @@ export function answerCard(col: Collection, cardId: number, rating: Rating, time
       `INSERT INTO deck_today(did,day,new_done,rev_done,ms) VALUES (?,?,?,?,?)
        ON CONFLICT(did,day) DO UPDATE SET new_done=new_done+excluded.new_done, rev_done=rev_done+excluded.rev_done, ms=ms+excluded.ms`,
     );
-    for (const did of affectedDecks) upd.run(did, day, wasNew ? 1 : 0, wasReview ? 1 : 0, ms);
+    if (opts.countToday !== false) for (const did of affectedDecks) upd.run(did, day, wasNew ? 1 : 0, wasReview ? 1 : 0, ms);
     // bury siblings
     const buryTypes: number[] = [];
     if (conf.buryNew) buryTypes.push(Queue.New);
@@ -433,9 +437,11 @@ export function answerCard(col: Collection, cardId: number, rating: Rating, time
       }
     }
   });
-  undoStack.push(entry);
-  while (undoStack.length > UNDO_LIMIT) undoStack.shift();
-  col.emit("review", [cardId]);
+  if (opts.undo !== false) {
+    undoStack.push(entry);
+    while (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  }
+  if (opts.emit !== false) col.emit("review", [cardId]);
   return { card: col.card(cardId)!, leech: o.leech };
 }
 
