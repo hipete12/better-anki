@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Search, Tag, Flag, ChevronDown, ChevronUp, MoreHorizontal, PauseCircle, Trash2, FolderInput, Tags, CalendarClock, RotateCcw, ListOrdered, Replace, Download, Filter, Info, Star, SlidersHorizontal, X, Eye, EyeOff, PanelLeft } from "lucide-react";
+import { Search, Tag, Flag, Copy, LayoutTemplate, ChevronDown, ChevronUp, MoreHorizontal, PauseCircle, Trash2, FolderInput, Tags, CalendarClock, RotateCcw, ListOrdered, Replace, Download, Filter, Info, Star, SlidersHorizontal, X, Eye, EyeOff, PanelLeft } from "lucide-react";
 import { api, type BrowseRow, type CardState, type NoteData } from "../lib/api";
 import { useApi, useLocalStorage, useIsDark } from "../lib/hooks";
 import { Button, cx, Field, IconButton, Input, Loading, Menu, Modal, Select, Switch, Tabs, useDialogs, useToast, Badge } from "../components/ui";
@@ -9,6 +9,7 @@ import CardFrame from "../components/CardFrame";
 import CardInfoDialog from "../components/CardInfoDialog";
 import ExportDialog from "../components/ExportDialog";
 import FilteredDeckDialog from "../components/FilteredDeckDialog";
+import DisplayOrderDialog from "../components/DisplayOrderDialog";
 
 const COLUMNS: { key: keyof BrowseRow; label: string; title?: string; sort?: string; cls?: string; align?: "center" | "right"; notes?: boolean; cards?: boolean }[] = [
   { key: "order", label: "#", title: "Position in the order the deck came with", sort: "order", cls: "w-14 text-faint tnum", align: "right" },
@@ -189,6 +190,20 @@ export default function Browse() {
 
   const visibleCols = COLUMNS.filter((c) => cols.includes(c.key) && !(mode === "notes" && c.cards) && !(mode === "cards" && c.notes));
   const anySuspended = selRows.some((r) => r.queue === -1);
+  const [layoutCards, setLayoutCards] = useState<number[] | null>(null);
+  const openDisplayOrder = async () => setLayoutCards(await selCardIds());
+  const duplicate = async () => {
+    const n = selIds.length;
+    const what = mode === "notes" ? `note${n === 1 ? "" : "s"}` : `card${n === 1 ? "" : "s"}`;
+    if (n > 1 && !(await dialogs.confirm({ title: `Duplicate ${n} ${what}?`, body: "Each copy is a new note created now, with the same fields and tags, in the same deck. Copies start as new cards.", confirm: "Duplicate" }))) return;
+    try {
+      const r = await api.post<{ notes: number; cards: number }>("/api/notes/duplicate", mode === "notes" ? { noteIds: selIds } : { cardIds: selIds });
+      toast(`Duplicated ${r.notes} note${r.notes === 1 ? "" : "s"} (${r.cards} card${r.cards === 1 ? "" : "s"})`, "success");
+      search(0);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
 
   return (
     <div className="flex h-full">
@@ -241,6 +256,12 @@ export default function Browse() {
                   )}
                   items={FLAG_NAMES.map((n, i) => ({ label: n, icon: <Flag style={{ color: FLAG_COLORS[i] || undefined, fill: FLAG_COLORS[i] || "none" }} />, onClick: () => cardAct({ action: "flag", flag: i }, i ? `Flagged ${n.toLowerCase()}` : "Flag removed") }))}
                 />
+                <Button size="sm" variant="ghost" onClick={openDisplayOrder}>
+                  <LayoutTemplate className="size-4" /> <span className="hidden sm:inline">Display order</span>
+                </Button>
+                <Button size="sm" variant="ghost" onClick={duplicate}>
+                  <Copy className="size-4" /> <span className="hidden sm:inline">Duplicate</span>
+                </Button>
               </>
             )}
             <Menu
@@ -344,6 +365,7 @@ export default function Browse() {
       <Modal open={modal === "editor" && !!single} onClose={() => setModal(null)} title="Edit" wide>
         {single && <SideEditor row={single} mode={mode} onSaved={() => search(0)} compact />}
       </Modal>
+      {layoutCards && <DisplayOrderDialog cardIds={layoutCards} onClose={() => setLayoutCards(null)} onDone={() => search(0)} />}
       {modal === "deck" && <ChangeDeckDialog onClose={() => setModal(null)} onPick={(deckId) => cardAct({ action: "setDeck", deckId }, "Moved")} />}
       {(modal === "tags-add" || modal === "tags-remove") && (
         <TagsDialog

@@ -18,6 +18,7 @@ import { trainingSequences, recomputeMemory } from "../sched/memory";
 import { evaluate, type OptimizeResult } from "../sched/optimizer";
 import { FSRS, FSRS6_DEFAULT_PARAMS } from "../sched/fsrs";
 import { STOCK_NOTETYPES } from "../stock";
+import { layoutOptions, assignLayout, createLayout, changeNotetype, duplicateNotes } from "../layouts";
 import { existsSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
@@ -380,34 +381,17 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
   });
   r.post("/api/notes/change-notetype", async (ctx) => {
     const b = await ctx.json<{ noteIds: number[]; notetypeId: number; fieldMap: number[]; templateMap?: number[] }>();
-    const target = col.notetype(b.notetypeId);
-    assert(target, "Notetype not found", 404);
-    let changed = 0;
-    col.tx(() => {
-      for (const id of b.noteIds) {
-        const n = col.note(id);
-        if (!n) continue;
-        const old = splitFields(n.flds);
-        const fields = target.fields.map((_, i) => (b.fieldMap[i] != null && b.fieldMap[i] >= 0 ? (old[b.fieldMap[i]] ?? "") : ""));
-        const cards = col.cardsOfNote(id);
-        if (b.templateMap && target.kind === 0) {
-          const keep = new Map<number, number>(); // oldOrd -> newOrd
-          b.templateMap.forEach((oldOrd, newOrd) => oldOrd != null && oldOrd >= 0 && keep.set(oldOrd, newOrd));
-          for (const c of cards) {
-            if (keep.has(c.ord)) col.db.query("UPDATE cards SET ord=? WHERE id=?").run(-1 - keep.get(c.ord)!, c.id);
-            else col.removeCards([c.id], false);
-          }
-          col.db.query("UPDATE cards SET ord=-1-ord WHERE nid=? AND ord<0").run(id);
-        } else if (target.kind === 1) {
-          // cloze: card ords follow cloze numbers; drop cards and regenerate if mismatch
-        }
-        col.db.query("UPDATE notes SET ntid=?, flds=?, mtime=? WHERE id=?").run(target.id, joinFields(fields), nowSecs(), id);
-        col.updateNote(id, fields);
-        changed++;
-      }
-    });
-    return { changed };
+    return { changed: changeNotetype(col, b.noteIds, b.notetypeId, b.fieldMap, b.templateMap) };
   });
+  r.post("/api/notes/duplicate", async (ctx) => duplicateNotes(col, await ctx.json<{ cardIds?: number[]; noteIds?: number[] }>()));
+
+  // ---------------- display order (layouts) ----------------
+  r.post("/api/layouts/options", async (ctx) => layoutOptions(col, (await ctx.json<{ cardIds: number[] }>()).cardIds ?? []));
+  r.post("/api/layouts/assign", async (ctx) => {
+    const b = await ctx.json<{ cardIds: number[]; notetypeId: number }>();
+    return assignLayout(col, b.cardIds ?? [], Number(b.notetypeId));
+  });
+  r.post("/api/layouts", async (ctx) => createLayout(col, await ctx.json<{ cardIds: number[]; name: string; qfmt: string; afmt: string }>()));
 
   // ---------------- cards ----------------
   r.get("/api/cards/:id", (ctx) => {
