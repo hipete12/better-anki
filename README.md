@@ -59,6 +59,8 @@ cd android
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Prebuilt, signed APKs are attached to the GitHub releases. For your own signed release build, create `android/keystore.properties` (gitignored) with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`, then run `./gradlew assembleRelease`. Without that file, release builds are signed with the debug key.
+
 On the emulator, the host's localhost is `http://10.0.2.2:8765` (the default on the connect screen). On a phone, use the server's Tailscale address. The app refuses plain-HTTP servers that aren't loopback, the emulator host or Tailscale unless you explicitly allow it.
 
 ## Tests
