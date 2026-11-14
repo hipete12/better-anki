@@ -15,6 +15,7 @@ import { exportApkg } from "../src/exporter/apkg";
 import { importCsv, previewCsv } from "../src/importer/text";
 import { createFiltered, customStudy, cardAction, deckTree } from "../src/ops";
 import { checkDatabase, findEmptyCards } from "../src/maintenance";
+import { homeSummary, TREND_DAYS } from "../src/stats";
 import { optimize } from "../src/sched/optimizer";
 import { splitFields } from "../src/util";
 import { randomKey } from "../src/crypto/aead";
@@ -122,6 +123,52 @@ describe("study queue", () => {
     expect(u?.cardId).toBe(next!.card.id);
     expect(countsFor(col, 1)).toEqual({ new: 20, learn: 0, review: 0 });
     expect(col.db.query<any, []>("SELECT count(*) n FROM revlog").get().n).toBe(0);
+  });
+  test("home summary: today, streak, forecast", () => {
+    for (let i = 0; i < 5; i++) col.addNote(basic().id, [`h${i}`, `a${i}`], [], 1);
+    const empty = homeSummary(col);
+    expect(empty.streak).toBe(0);
+    expect(empty.cards.total).toBe(5);
+    expect(empty.next7).toHaveLength(7);
+    const { next } = nextCard(col, 1);
+    answerCard(col, next!.card.id, 1, 3000);
+    const h = homeSummary(col);
+    expect(h.today.cards).toBe(1);
+    expect(h.today.again).toBe(1);
+    expect(h.streak).toBe(1);
+    expect(h.last14[13].count).toBe(1);
+    expect(h.next7[0].count).toBe(1); // the relearning card is due today
+  });
+  test("home summary: card-state trend rebuilt from the review log", () => {
+    for (let i = 0; i < 4; i++) col.addNote(basic().id, [`t${i}`, `a${i}`], [], 1);
+    const [a, b, c, d] = col.db.query<{ id: number }, []>("SELECT id FROM cards ORDER BY id").all().map((r) => r.id);
+    const at = (daysAgo: number, n = 0) => (NOW - daysAgo * 86400) * 1000 + n;
+    const log = col.db.query("INSERT INTO revlog(id,cid,ease,ivl,last_ivl,factor,time,type) VALUES (?,?,?,?,?,?,0,?)");
+    // a: learning 10 days ago, young the next day, mature 3 days ago
+    log.run(at(10), a, 1, -600, 0, 0, 0);
+    log.run(at(9), a, 3, 4, -600, 2500, 0);
+    log.run(at(3), a, 3, 25, 4, 2500, 1);
+    col.db.query("UPDATE cards SET type=2, queue=2, ivl=25 WHERE id=?").run(a);
+    // b: young 5 days ago, then forgotten (no log entry) → new again today
+    log.run(at(5), b, 3, 2, 0, 2500, 0);
+    // c: young but suspended → left out
+    log.run(at(5, 1), c, 3, 2, 0, 2500, 0);
+    col.db.query("UPDATE cards SET type=2, queue=-1, ivl=2 WHERE id=?").run(c);
+    // d: lapsed into relearning yesterday
+    log.run(at(8), d, 3, 30, 0, 2500, 0);
+    log.run(at(1), d, 1, -600, 30, 2500, 1);
+    col.db.query("UPDATE cards SET type=3, queue=1, ivl=1 WHERE id=?").run(d);
+
+    const { trend } = homeSummary(col);
+    expect(trend).toHaveLength(TREND_DAYS);
+    const ago = (n: number) => trend[trend.length - 1 - n];
+    expect(ago(11)).toMatchObject({ learning: 0, young: 0, mature: 0 });
+    expect(ago(10)).toMatchObject({ learning: 1, young: 0, mature: 0 });
+    expect(ago(8)).toMatchObject({ learning: 0, young: 1, mature: 1 });
+    expect(ago(5)).toMatchObject({ learning: 0, young: 2, mature: 1 });
+    expect(ago(3)).toMatchObject({ learning: 0, young: 1, mature: 2 });
+    expect(ago(1)).toMatchObject({ learning: 1, young: 1, mature: 1 });
+    expect(ago(0)).toMatchObject({ learning: 1, young: 0, mature: 1, day: 0 });
   });
   test("subdeck limits roll up to parent", () => {
     const a = col.ensureDeck("P::A");

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Search, Layers, Tag, Flag, Shapes, Clock, ChevronDown, ChevronUp, MoreHorizontal, PauseCircle, Trash2, FolderInput, Tags, CalendarClock, RotateCcw, ListOrdered, Replace, Download, Filter, Info, Star, SlidersHorizontal, X, Eye, EyeOff, PanelLeft } from "lucide-react";
+import { Search, Tag, Flag, ChevronDown, ChevronUp, MoreHorizontal, PauseCircle, Trash2, FolderInput, Tags, CalendarClock, RotateCcw, ListOrdered, Replace, Download, Filter, Info, Star, SlidersHorizontal, X, Eye, EyeOff, PanelLeft } from "lucide-react";
 import { api, type BrowseRow, type NoteData } from "../lib/api";
 import { useApi, useLocalStorage, useIsDark } from "../lib/hooks";
 import { Button, cx, Field, IconButton, Input, Loading, Menu, Modal, Select, Switch, Tabs, useDialogs, useToast, Badge } from "../components/ui";
@@ -354,7 +354,7 @@ function BrowseSidebar({ onSearch, current }: { onSearch: (q: string) => void; c
   const nts = useApi(() => api.get<{ id: number; name: string }[]>("/api/notetypes"), [], { live: ["notetypes"] });
   const tags = useApi(() => api.get<string[]>("/api/tags"), [], { live: ["notes", "import"] });
   const Item = ({ q, label, icon, depth = 0 }: { q: string; label: React.ReactNode; icon?: React.ReactNode; depth?: number }) => (
-    <button onClick={() => onSearch(q)} className={cx("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-left truncate", current === q ? "bg-brand-500/12 text-brand-700 dark:text-brand-300" : "text-muted hover:text-app hover:bg-panel-2")} style={{ paddingLeft: 8 + depth * 12 }}>
+    <button onClick={() => onSearch(q)} className={cx("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-left truncate", current === q ? "bg-panel-2 text-app font-medium" : "text-muted hover:text-app hover:bg-panel-2")} style={{ paddingLeft: 8 + depth * 12 }}>
       {icon && <span className="[&>svg]:size-3.5 shrink-0">{icon}</span>}
       <span className="truncate">{label}</span>
     </button>
@@ -368,12 +368,12 @@ function BrowseSidebar({ onSearch, current }: { onSearch: (q: string) => void; c
   return (
     <aside className="hidden md:block w-56 shrink-0 border-r border-app bg-panel overflow-y-auto scrollbar-thin px-2 py-3">
       <Section title="Saved searches">
-        <Item q="" label="Whole collection" icon={<Layers />} />
-        <Item q="deck:current" label="Current deck" icon={<Layers />} />
-        <Item q="added:1" label="Added today" icon={<Clock />} />
-        <Item q="rated:1" label="Studied today" icon={<Clock />} />
-        <Item q="rated:1:1" label="Again today" icon={<Clock />} />
-        <Item q="edited:1" label="Edited today" icon={<Clock />} />
+        <Item q="" label="Whole collection" />
+        <Item q="deck:current" label="Current deck" />
+        <Item q="added:1" label="Added today" />
+        <Item q="rated:1" label="Studied today" />
+        <Item q="rated:1:1" label="Again today" />
+        <Item q="edited:1" label="Edited today" />
       </Section>
       <Section title="Card state">
         <Item q="is:new" label="New" icon={<span className="block size-2 rounded-full bg-blue-500" />} />
@@ -382,26 +382,26 @@ function BrowseSidebar({ onSearch, current }: { onSearch: (q: string) => void; c
         <Item q="is:due" label="Due" icon={<span className="block size-2 rounded-full bg-green-400" />} />
         <Item q="is:suspended" label="Suspended" icon={<span className="block size-2 rounded-full bg-amber-400" />} />
         <Item q="is:buried" label="Buried" icon={<span className="block size-2 rounded-full bg-zinc-400" />} />
-        <Item q="tag:marked" label="Marked" icon={<Star />} />
+        <Item q="tag:marked" label="Marked" icon={<span className="block size-2 rounded-full bg-amber-500" />} />
         <Item q="tag:leech" label="Leeches" icon={<span className="block size-2 rounded-full bg-red-500" />} />
       </Section>
       <Section title="Flags">
         {FLAG_NAMES.slice(1).map((n, i) => (
-          <Item key={n} q={`flag:${i + 1}`} label={n} icon={<Flag style={{ color: FLAG_COLORS[i + 1], fill: FLAG_COLORS[i + 1] }} />} />
+          <Item key={n} q={`flag:${i + 1}`} label={n} icon={<span className="block size-2 rounded-full" style={{ background: FLAG_COLORS[i + 1] }} />} />
         ))}
       </Section>
       <Section title="Decks">
         {decks.data?.map((d) => (
-          <Item key={d.id} q={`deck:"${d.name}"`} label={d.name.split("::").pop()} depth={d.name.split("::").length - 1} icon={d.kind === 1 ? <Filter /> : undefined} />
+          <Item key={d.id} q={`deck:"${d.name}"`} label={d.name.split("::").pop()} depth={d.name.split("::").length - 1} />
         ))}
       </Section>
       <Section title="Note types">
         {nts.data?.map((n) => (
-          <Item key={n.id} q={`note:"${n.name}"`} label={n.name} icon={<Shapes />} />
+          <Item key={n.id} q={`note:"${n.name}"`} label={n.name} />
         ))}
       </Section>
       <Section title="Tags">
-        {tags.data?.length ? tags.data.map((t) => <Item key={t} q={`tag:"${t}"`} label={t.split("::").pop()} depth={t.split("::").length - 1} icon={<Tag />} />) : <div className="px-2 text-xs text-muted">No tags</div>}
+        {tags.data?.length ? tags.data.map((t) => <Item key={t} q={`tag:"${t}"`} label={t.split("::").pop()} depth={t.split("::").length - 1} />) : <div className="px-2 text-xs text-muted">No tags</div>}
       </Section>
     </aside>
   );

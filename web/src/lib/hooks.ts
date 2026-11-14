@@ -80,6 +80,29 @@ export function applyTheme(t: Theme) {
     localStorage.setItem("ba.theme", t);
   } catch {}
 }
+export type FontChoice = "inter" | "system" | "serif" | "mono";
+export const FONT_CHOICES: { value: FontChoice; label: string; stack: string }[] = [
+  { value: "inter", label: "Inter", stack: '"Inter Variable", ui-sans-serif, system-ui, sans-serif' },
+  { value: "system", label: "System", stack: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' },
+  { value: "serif", label: "Serif", stack: 'ui-serif, "Iowan Old Style", Charter, Georgia, Cambria, "Times New Roman", serif' },
+  { value: "mono", label: "Mono", stack: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace' },
+];
+/** App font for this device (the stacks live in index.css as `:root[data-font=…]`; card content keeps its own styling). */
+export function applyFont(f: FontChoice) {
+  if (f === "inter") delete document.documentElement.dataset.font;
+  else document.documentElement.dataset.font = f;
+  try {
+    localStorage.setItem("ba.font", f);
+  } catch {}
+}
+export function currentFont(): FontChoice {
+  try {
+    const f = localStorage.getItem("ba.font") as FontChoice | null;
+    if (f && FONT_CHOICES.some((c) => c.value === f)) return f;
+  } catch {}
+  return "inter";
+}
+
 export function isDark() {
   return document.documentElement.classList.contains("dark");
 }

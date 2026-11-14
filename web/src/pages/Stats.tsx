@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, fmt, type Today } from "../lib/api";
+import { Stat } from "../components/visual";
 import { useApi } from "../lib/hooks";
 import { Card, Loading, PageHeader, Select, Tabs } from "../components/ui";
 import { ChartCard, ColumnChart, Heatmap, SegmentedBar, type Series } from "../components/charts";
@@ -95,11 +96,11 @@ export default function StatsPage() {
         <Loading />
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Tile label="Studied today" value={String(data.today.cards)} sub={`${fmt.duration(data.today.timeMs)} · ${data.today.again} again`} />
-            <Tile label="Due tomorrow" value={String(data.dueTomorrow)} sub={data.overdue ? `${data.overdue} overdue` : "nothing overdue"} />
-            <Tile label="Streak" value={`${data.streak} days`} sub={`longest ${data.longestStreak} · ${data.daysStudied} days studied`} />
-            <Tile label={data.fsrs ? "Avg. retrievability" : "Avg. ease"} value={data.fsrs ? pct(data.avgRetention) : data.avgEase ? `${Math.round(data.avgEase)}%` : "–"} sub={`avg interval ${fmt.ivl(data.avgInterval)}`} />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-5 pb-4">
+            <Stat value={data.today.cards} label={`studied today · ${fmt.duration(data.today.timeMs)}`} valueClass={data.today.cards ? "text-brand-600 dark:text-brand-400" : "text-faint"} />
+            <Stat value={data.dueTomorrow} label={data.overdue ? `due tomorrow · ${data.overdue} overdue` : "due tomorrow"} />
+            <Stat value={`${data.streak}d`} label={`streak · best ${data.longestStreak}d`} valueClass={data.streak ? "text-orange-600 dark:text-orange-400" : "text-faint"} />
+            <Stat value={data.fsrs ? pct(data.avgRetention) : data.avgEase ? `${Math.round(data.avgEase)}%` : "–"} label={`${data.fsrs ? "avg. retrievability" : "avg. ease"} · ${fmt.ivl(data.avgInterval)} interval`} valueClass="text-due" />
           </div>
 
           <ChartCard title="Calendar" subtitle="Reviews per day over the last year">
@@ -218,12 +219,3 @@ export default function StatsPage() {
   );
 }
 
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <Card className="px-4 py-3.5">
-      <div className="text-xs text-muted">{label}</div>
-      <div className="text-2xl font-semibold tracking-tight mt-1">{value}</div>
-      {sub && <div className="text-[11px] text-muted mt-0.5 truncate">{sub}</div>}
-    </Card>
-  );
-}

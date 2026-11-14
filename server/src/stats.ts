@@ -213,3 +213,123 @@ function histogram(values: number[], edges: number[]) {
 function dateOfDay(day: number): string {
   return new Date(day * 86400 * 1000).toISOString().slice(0, 10);
 }
+
+/** Days of history in the home screen's card-state trend. */
+export const TREND_DAYS = 90;
+
+// Card states for the trend: 0 = new (not plotted), 1 = learning or relearning, 2 = young, 3 = mature.
+const reviewState = (ivl: number) => (ivl >= 21 ? 3 : 2);
+const currentState = (type: number, ivl: number) => (type === 0 ? 0 : type === 1 || type === 3 ? 1 : reviewState(ivl));
+/** A card's state after a review-log entry (ivl > 0 is days, ivl < 0 is a learning step in seconds). */
+function stateAfter(prev: number, type: number, ivl: number): number {
+  if (type >= 4) return ivl > 0 ? reviewState(ivl) : ivl === 0 ? 0 : prev; // set due date, or forget (ivl 0)
+  if (ivl > 0) return reviewState(ivl);
+  if (type === 0 || type === 2 || (type === 1 && ivl < 0)) return 1;
+  return prev; // filtered-deck preview: the card's scheduling is unchanged
+}
+
+/** Lightweight dashboard summary for the home screen (cheap enough to load on every visit). */
+export function homeSummary(col: Collection) {
+  const roll = col.config.rolloverHour;
+  const today = col.today();
+  const now = nowSecs();
+  const db = col.db;
+  const dayOf = (ms: number) => dayNumber(Math.floor(ms / 1000), roll);
+
+  // Cards plotted in the trend (suspended cards are left out), with their state now.
+  const current = new Map<number, number>();
+  for (const c of db.query<{ id: number; type: number; ivl: number }, []>("SELECT id, type, ivl FROM cards WHERE queue != -1").iterate()) {
+    current.set(c.id, currentState(c.type, c.ivl));
+  }
+  // Each day's net change in the number of cards per state; changes before the window go into `base`.
+  const start = today - TREND_DAYS + 1;
+  const base = [0, 0, 0, 0];
+  const deltas = Array.from({ length: TREND_DAYS }, () => [0, 0, 0, 0]);
+  const move = (day: number, from: number, to: number) => {
+    if (from === to) return;
+    const slot = day < start ? base : deltas[Math.min(day, today) - start];
+    slot[from]--;
+    slot[to]++;
+  };
+  const states = new Map<number, number>();
+
+  // One chronological pass over the review log: review days (streaks, retention) and card states.
+  const perDay = new Map<number, number>();
+  let passed = 0,
+    failed = 0;
+  const monthAgo = (now - 30 * 86400) * 1000;
+  for (const r of db.query<{ id: number; cid: number; ease: number; type: number; ivl: number }, []>("SELECT id, cid, ease, type, ivl FROM revlog ORDER BY id").iterate()) {
+    const d = dayOf(r.id);
+    if (r.ease > 0 && r.type !== 4) {
+      perDay.set(d, (perDay.get(d) ?? 0) + 1);
+      if (r.type === 1 && r.id >= monthAgo) r.ease > 1 ? passed++ : failed++;
+    }
+    if (current.has(r.cid)) {
+      const prev = states.get(r.cid) ?? 0;
+      const next = stateAfter(prev, r.type, r.ivl);
+      move(d, prev, next);
+      states.set(r.cid, next);
+    }
+  }
+  // The log can disagree with the card table (forget writes no entry, imports may lack history): today's point uses the real state.
+  for (const [cid, state] of current) move(today, states.get(cid) ?? 0, state);
+  const counts = base.slice();
+  const trend = deltas.map((delta, i) => {
+    for (let s = 1; s < 4; s++) counts[s] += delta[s];
+    return { day: i - TREND_DAYS + 1, date: dateOfDay(start + i), learning: counts[1], young: counts[2], mature: counts[3] };
+  });
+  let streak = 0;
+  for (let d = today; ; d--) {
+    if (perDay.get(d)) streak++;
+    else if (d === today) continue;
+    else break;
+    if (streak > 3650) break;
+  }
+  let longest = 0,
+    run = 0,
+    prev: number | null = null;
+  for (const d of [...perDay.keys()].sort((a, b) => a - b)) {
+    run = prev !== null && d === prev + 1 ? run + 1 : 1;
+    longest = Math.max(longest, run);
+    prev = d;
+  }
+  const last14 = Array.from({ length: 14 }, (_, i) => {
+    const d = today - 13 + i;
+    return { day: d - today, date: dateOfDay(d), count: perDay.get(d) ?? 0 };
+  });
+
+  // forecast for the next 7 days (today = day 0 includes overdue + learning)
+  const fRows = db
+    .query<{ due: number; queue: number }, [number]>(
+      `SELECT CASE WHEN odid!=0 AND odue!=0 THEN odue ELSE due END due, queue FROM cards WHERE queue IN (1,2,3) AND (queue=1 OR (CASE WHEN odid!=0 AND odue!=0 THEN odue ELSE due END) <= ?)`,
+    )
+    .all(today + 7);
+  const next7 = Array.from({ length: 7 }, (_, i) => ({ day: i, date: dateOfDay(today + i), count: 0 }));
+  for (const r of fRows) {
+    const d = r.queue === 1 ? Math.max(0, dayNumber(r.due, roll) - today) : Math.max(0, r.due - today);
+    if (d < 7) next7[d].count++;
+  }
+
+  const cards = db
+    .query<{ total: number; new: number; learning: number; young: number; mature: number; suspended: number }, []>(
+      `SELECT count(*) total, coalesce(sum(type=0 AND queue>=0),0) new, coalesce(sum(type IN (1,3) AND queue>=0),0) learning,
+       coalesce(sum(type=2 AND ivl<21 AND queue>=0),0) young, coalesce(sum(type=2 AND ivl>=21 AND queue>=0),0) mature,
+       coalesce(sum(queue=-1),0) suspended FROM cards`,
+    )
+    .get()!;
+  const notes = db.query<{ n: number }, []>("SELECT count(*) n FROM notes").get()!.n;
+
+  return {
+    today: studiedToday(col),
+    streak,
+    longestStreak: longest,
+    daysStudied: perDay.size,
+    last14,
+    next7,
+    trend,
+    retention30: passed + failed ? (passed / (passed + failed)) * 100 : null,
+    retentionCount: passed + failed,
+    cards,
+    notes,
+  };
+}

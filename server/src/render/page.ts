@@ -18,8 +18,9 @@ const VIDEO_EXT = /\.(mp4|webm|mkv|mov|ogv|avi|m4v)$/i;
 
 const BASE_CSS = `
 html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; padding: 20px 16px 120px; overflow-wrap: break-word; min-height: 100vh; box-sizing: border-box; }
-.card.nightMode, .nightMode .card { color: #e8e8ec; background-color: #17171c; }
+body { margin: 0; padding: 40px 28px 64px; overflow-wrap: break-word; min-height: 100vh; box-sizing: border-box; }
+@media (max-width: 520px) { body { padding: 28px 18px 48px; } }
+.card.nightMode, .nightMode .card { color: #eceef4; background-color: #14161c; }
 img { max-width: 100%; height: auto; }
 .nightMode img.invert, .nightMode .invert-dark { filter: invert(1) hue-rotate(180deg); }
 hr#answer { border: 0; height: 1px; background: currentColor; opacity: .25; margin: 1.2em 0; }
@@ -178,7 +179,7 @@ window.anki.imageOcclusion={setup:function(){
   if(img.complete) draw(); else img.onload=draw; window.addEventListener('resize',draw);
   var tg=document.getElementById('toggle'); if(tg) tg.onclick=function(){ showInactive=!showInactive; draw(); };
 }};
-if(S.side==='answer'){ var an=document.getElementById('answer'); if(an) setTimeout(function(){ an.scrollIntoView({block:'start'}); },0); }
+if(S.side==='answer'){ var an=document.getElementById('answer'); if(an) setTimeout(function(){ if(an.getBoundingClientRect().top>innerHeight*0.6) an.scrollIntoView({block:'start'}); },0); }
 window.addEventListener('load',function(){
   if(S.autoplay && S.sounds.length>S.autoplayFrom){ var l=[]; for(var i=S.autoplayFrom;i<S.sounds.length;i++) l.push(i); playQueue(l); }
   post({type:'ready',side:S.side,sounds:S.sounds.length});

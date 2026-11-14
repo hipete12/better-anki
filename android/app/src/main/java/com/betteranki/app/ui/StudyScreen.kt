@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.Celebration
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
@@ -47,7 +46,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -206,25 +204,26 @@ fun StudyScreen(app: AppState, deckId: Long) {
                         if (!showAnswer) {
                             Button(
                                 onClick = { reveal() },
-                                modifier = Modifier.fillMaxWidth().height(54.dp),
-                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().height(50.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = BrandDark, contentColor = Color.White),
                             ) { Text("Show answer", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
                         } else {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf(Triple(1, "Again", AgainColor), Triple(2, "Hard", HardColor), Triple(3, "Good", GoodColor), Triple(4, "Easy", EasyColor)).forEach { (ease, label, color) ->
+                                val ac = appColors
+                                listOf(Triple(1, "Again", ac.again), Triple(2, "Hard", ac.hard), Triple(3, "Good", ac.good), Triple(4, "Easy", ac.easy)).forEach { (ease, label, color) ->
                                     val info = card.buttons.firstOrNull { it.ease == ease }
                                     OutlinedButton(
                                         onClick = { answer(ease) },
                                         enabled = !busy,
-                                        modifier = Modifier.weight(1f).height(58.dp),
-                                        shape = RoundedCornerShape(14.dp),
-                                        border = BorderStroke(1.dp, color.copy(alpha = 0.35f)),
+                                        modifier = Modifier.weight(1f).height(56.dp),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                                         contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
                                     ) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(info?.label ?: "", fontSize = 11.sp, color = color.copy(alpha = 0.85f))
                                             Text(label, fontWeight = FontWeight.SemiBold, color = color, fontSize = 15.sp)
+                                            Text(info?.label ?: "", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                 }
@@ -255,20 +254,23 @@ fun StudyScreen(app: AppState, deckId: Long) {
 
 @Composable
 private fun Congrats(s: StudyState, modifier: Modifier, onUnbury: () -> Unit, onBack: () -> Unit) {
+    val ac = appColors
+    val t = s.today
     Column(modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Box(Modifier.size(84.dp).background(Brush.linearGradient(listOf(Color(0xFF818CF8), Color(0xFF7C3AED))), RoundedCornerShape(26.dp)), contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.Celebration, null, Modifier.size(42.dp), tint = Color.White)
+        Text("All done", fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+        Text("You've finished this deck for now.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, fontSize = 14.sp)
+        Spacer(Modifier.height(24.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+            Stat("${t.cards}", "today", color = ac.brand)
+            Stat(fmtDuration(t.timeMs), "time")
+            Stat(if (t.cards > 0) "${(100 * (t.cards - t.again)) / t.cards}%" else "–", "correct", color = if (t.cards > 0) ac.due else ac.faint)
         }
-        Spacer(Modifier.height(18.dp))
-        Text("Congratulations!", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text("You've finished this deck for now.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         s.nextLearnDue?.let {
             val mins = ((it * 1000 - System.currentTimeMillis()) / 60000).coerceAtLeast(0)
-            Text(if (mins < 1) "The next learning card is ready in less than a minute." else "The next learning card is ready in $mins min.", fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp), textAlign = TextAlign.Center)
+            Text(if (mins < 1) "The next learning card is ready in less than a minute." else "The next learning card is ready in $mins min.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 20.dp), textAlign = TextAlign.Center)
         }
-        Text("Today: ${s.today.cards} cards in ${fmtDuration(s.today.timeMs)}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
-        Spacer(Modifier.height(22.dp))
-        if (s.buried > 0) OutlinedButton(onClick = onUnbury, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) { Text("Unbury ${s.buried} cards") }
-        Button(onClick = onBack, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = BrandDark, contentColor = Color.White)) { Text("Back") }
+        Spacer(Modifier.height(28.dp))
+        Button(onClick = onBack, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = BrandDark, contentColor = Color.White)) { Text("Back to decks") }
+        if (s.buried > 0) OutlinedButton(onClick = onUnbury, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Unbury ${s.buried} cards") }
     }
 }

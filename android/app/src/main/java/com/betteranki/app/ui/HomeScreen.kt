@@ -136,7 +136,7 @@ fun TabHeader(title: String, subtitle: String? = null, start: androidx.compose.u
 @Composable
 fun DecksTab(app: AppState) {
     var data by remember { mutableStateOf<DeckTree?>(null) }
-    var streak by remember { mutableStateOf<Int?>(null) }
+    var home by remember { mutableStateOf<com.betteranki.app.data.HomeSummary?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
@@ -146,7 +146,7 @@ fun DecksTab(app: AppState) {
         try {
             data = app.api.get<DeckTree>("/api/decks")
             collapsed.value = flatten(data!!.tree).filter { it.collapsed }.map { it.id }.toSet()
-            streak = app.api.get<Stats>("/api/stats?days=7").streak
+            home = app.api.get<com.betteranki.app.data.HomeSummary>("/api/home")
             error = null
         } catch (e: Exception) {
             error = e.message
@@ -157,18 +157,20 @@ fun DecksTab(app: AppState) {
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = { scope.launch { refreshing = true; load(); refreshing = false } }) {
         LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
-                TabHeader("Decks", if (data == null) null else if (due > 0) "$due cards waiting today" else "You're all caught up") {
+                TabHeader("Decks") {
                     IconButton(onClick = { creating = true }) { Icon(Icons.Default.Add, "Create deck") }
                 }
             }
             item {
                 data?.let { d ->
-                    Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StatTile("Studied today", "${d.today.cards}", "${d.today.again} again", Modifier.weight(1f))
-                        StatTile("Time today", fmtDuration(d.today.timeMs), if (d.today.cards > 0) String.format("%.1fs / card", d.today.timeMs / 1000.0 / d.today.cards) else "–", Modifier.weight(1f))
-                        StatTile("Streak", "${streak ?: 0}d", "keep it going", Modifier.weight(1f))
+                    val ac = appColors
+                    val t = home?.today ?: d.today
+                    Row(Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 22.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Stat("$due", "due today", Modifier.weight(1f), if (due > 0) ac.brand else ac.faint)
+                        Stat("${t.cards}", "studied", Modifier.weight(1f))
+                        Stat(if (t.cards > 0) "${(100 * (t.cards - t.again)) / t.cards}%" else "–", "correct", Modifier.weight(1f), if (t.cards == 0) ac.faint else if (t.again * 5 > t.cards) ac.hard else ac.due)
+                        Stat(home?.let { "${it.streak}d" } ?: "–", "streak", Modifier.weight(1f), if ((home?.streak ?: 0) > 0) ac.streak else ac.faint)
                     }
-                    Spacer(Modifier.height(14.dp))
                 }
             }
             error?.let { item { ErrorBox(it, Modifier.padding(16.dp)) } }
@@ -220,8 +222,10 @@ private fun DeckRow(node: DeckNode, depth: Int, collapsed: Boolean, onToggle: ()
         Box(Modifier.size(36.dp).clickable(enabled = node.children.isNotEmpty(), onClick = onToggle), contentAlignment = Alignment.Center) {
             if (node.children.isNotEmpty()) Icon(if (collapsed) Icons.Default.ChevronRight else Icons.Default.ExpandMore, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(node.shortName, Modifier.weight(1f), fontWeight = FontWeight.Medium, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontStyle = if (node.kind == 1) FontStyle.Italic else FontStyle.Normal, color = if (node.kind == 1) Brand else MaterialTheme.colorScheme.onSurface)
-        if (node.kind == 1) Icon(Icons.Default.FilterAlt, null, Modifier.size(16.dp).padding(end = 4.dp), tint = Brand)
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(node.shortName, Modifier.weight(1f, fill = false), fontWeight = if (depth == 0) FontWeight.Medium else FontWeight.Normal, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontStyle = if (node.kind == 1) FontStyle.Italic else FontStyle.Normal)
+            Text(if (node.kind == 1) "  filtered" else "  ${node.total}", fontSize = 12.sp, color = if (node.kind == 1) appColors.brand else appColors.faint, maxLines = 1)
+        }
         CountsRow(node.counts.new, node.counts.learn, node.counts.review)
     }
 }
@@ -249,7 +253,7 @@ fun BrowseTab(app: AppState) {
             singleLine = true,
             leadingIcon = { Icon(Icons.Default.Search, null) },
             placeholder = { Text("deck:\"Spanish\" tag:verb is:due") },
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(10.dp),
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { submitted = query }),
         )
@@ -302,14 +306,15 @@ fun StatsTab(app: AppState) {
         if (s == null) item { Box(Modifier.height(300.dp)) { Loading() } }
         else {
             item {
-                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StatTile("Studied today", "${s.today.cards}", "${fmtDuration(s.today.timeMs)} · ${s.today.again} again", Modifier.weight(1f))
-                        StatTile("Due tomorrow", "${s.dueTomorrow}", if (s.overdue > 0) "${s.overdue} overdue" else "nothing overdue", Modifier.weight(1f))
+                val ac = appColors
+                Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Stat("${s.today.cards}", "studied today · ${fmtDuration(s.today.timeMs)}", Modifier.weight(1f), if (s.today.cards > 0) ac.brand else ac.faint)
+                        Stat("${s.dueTomorrow}", if (s.overdue > 0) "due tomorrow · ${s.overdue} overdue" else "due tomorrow", Modifier.weight(1f))
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StatTile("Streak", "${s.streak} days", "longest ${s.longestStreak}", Modifier.weight(1f))
-                        StatTile(if (s.fsrs) "Avg. retrievability" else "Reviews/day", if (s.fsrs) s.avgRetention?.let { String.format("%.1f%%", it) } ?: "–" else String.format("%.1f", s.summary.avgPerDay), "avg interval ${s.avgInterval.toInt()}d", Modifier.weight(1f))
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Stat("${s.streak}d", "streak · best ${s.longestStreak}d", Modifier.weight(1f), if (s.streak > 0) ac.streak else ac.faint)
+                        Stat(if (s.fsrs) s.avgRetention?.let { String.format("%.1f%%", it) } ?: "–" else String.format("%.1f", s.summary.avgPerDay), if (s.fsrs) "avg. retrievability" else "reviews per day", Modifier.weight(1f), ac.due)
                     }
                 }
             }
@@ -411,7 +416,7 @@ fun SettingsTab(app: AppState) {
         item {
             Panel(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Shield, null, tint = DueGreen); Text("  Security & encryption", fontWeight = FontWeight.SemiBold) }
+                    Text("Security & encryption", fontWeight = FontWeight.SemiBold)
                     SecurityLine(true, "At rest", "Collection, media, filenames and backups are AES-256-GCM encrypted on the server.")
                     SecurityLine(transport.secure, "In transit", transport.reason)
                     SecurityLine(true, "This device", "Session token encrypted with a non-exportable Android Keystore key; backups disabled.")
@@ -438,20 +443,19 @@ fun SettingsTab(app: AppState) {
                     Text("Revoking a device destroys its key.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     sessions.forEach { s ->
                         Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (s.device.contains("Android", true)) Icons.Default.Smartphone else Icons.Default.Computer, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                            Column(Modifier.weight(1f)) {
                                 Text(s.device + if (s.current == true) "  (this device)" else "", fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("Last active " + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(s.lastSeen)), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            if (s.current != true) IconButton(onClick = { scope.launch { try { app.api.delete<JsonObject>("/api/auth/sessions/${s.id}"); load() } catch (e: Exception) { error = e.message } } }) { Icon(Icons.Default.Delete, "Revoke") }
+                            if (s.current != true) TextButton(onClick = { scope.launch { try { app.api.delete<JsonObject>("/api/auth/sessions/${s.id}"); load() } catch (e: Exception) { error = e.message } } }) { Text("Revoke", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                     }
                 }
             }
         }
         item {
-            OutlinedButton(onClick = { scope.launch { app.signOut() } }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(14.dp)) {
-                Icon(Icons.AutoMirrored.Filled.Logout, null); Text("  Sign out")
+            OutlinedButton(onClick = { scope.launch { app.signOut() } }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(10.dp)) {
+                Text("Sign out")
             }
         }
     }
@@ -460,7 +464,7 @@ fun SettingsTab(app: AppState) {
 @Composable
 private fun SecurityLine(ok: Boolean, title: String, text: String) {
     Row {
-        Icon(Icons.Default.Lock, null, Modifier.size(16.dp).padding(top = 3.dp), tint = if (ok) DueGreen else Color(0xFFD97706))
+        Box(Modifier.padding(top = 7.dp)) { Dot(if (ok) appColors.due else Color(0xFFD97706), 6) }
         Text(
             androidx.compose.ui.text.buildAnnotatedString {
                 pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface))
@@ -471,7 +475,7 @@ private fun SecurityLine(ok: Boolean, title: String, text: String) {
             fontSize = 13.sp,
             lineHeight = 18.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 8.dp),
+            modifier = Modifier.padding(start = 10.dp),
         )
     }
 }

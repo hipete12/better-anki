@@ -36,7 +36,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -114,7 +113,7 @@ fun ConnectScreen(app: AppState) {
     }
 
     Box(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Brand.copy(alpha = 0.22f), MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.background))),
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(
@@ -122,11 +121,11 @@ fun ConnectScreen(app: AppState) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(24.dp))
-            Box(Modifier.size(72.dp).background(Brush.linearGradient(listOf(androidx.compose.ui.graphics.Color(0xFF818CF8), androidx.compose.ui.graphics.Color(0xFF7C3AED))), RoundedCornerShape(20.dp))) {
+            Box(Modifier.size(56.dp).background(BrandDark, RoundedCornerShape(14.dp))) {
                 Image(painterResource(R.drawable.ic_launcher_foreground), null, Modifier.fillMaxSize())
             }
             Spacer(Modifier.height(14.dp))
-            Text("Better Anki", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            Text("Better Anki", fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
             Text("Spaced repetition, on your own encrypted server.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
             Spacer(Modifier.height(24.dp))
             Panel(Modifier.fillMaxWidth()) {

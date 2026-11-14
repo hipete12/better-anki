@@ -15,7 +15,23 @@ export interface DeckNode {
   configId: number;
   counts: Counts;
   total: number;
+  color: string | null;
+  emoji: string | null;
   children: DeckNode[];
+}
+export interface HomeSummary {
+  today: Today;
+  streak: number;
+  longestStreak: number;
+  daysStudied: number;
+  last14: { day: number; date: string; count: number }[];
+  next7: { day: number; date: string; count: number }[];
+  /** Cards per state at the end of each of the last 90 days (suspended cards left out). */
+  trend: { day: number; date: string; learning: number; young: number; mature: number }[];
+  retention30: number | null;
+  retentionCount: number;
+  cards: { total: number; new: number; learning: number; young: number; mature: number; suspended: number };
+  notes: number;
 }
 export interface Today {
   cards: number;
@@ -148,7 +164,7 @@ export interface StudyCard {
   };
 }
 export interface StudyState {
-  deck: { id: number; name: string; kind: number };
+  deck: { id: number; name: string; kind: number; color: string | null; emoji: string | null };
   counts: Counts;
   nextLearnDue: number | null;
   buried: number;

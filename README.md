@@ -17,7 +17,14 @@ Highlights over stock Anki:
 - A modern, responsive UI with dark mode, keyboard-first study and a richer stats dashboard (heatmap, streaks, true retention, FSRS stability/difficulty/retrievability).
 - Reads every Anki package format, legacy and current (`.apkg`, `.colpkg`, `collection.anki21b` with zstd and protobuf). Exports `.apkg` files that Anki, AnkiDroid and AnkiMobile can import, verified against the official `anki` library.
 
-See [docs/FEATURES.md](docs/FEATURES.md) for the Anki feature research and the parity matrix.
+See [docs/FEATURES.md](docs/FEATURES.md) for the Anki feature research and the parity matrix, and [docs/DESIGN.md](docs/DESIGN.md) for the UI design rules.
+
+| Web | Android |
+|---|---|
+| ![Decks](docs/screenshots/web-home.webp) | ![Decks](docs/screenshots/android-decks.webp) |
+| ![Study](docs/screenshots/web-answer.webp) | ![Study](docs/screenshots/android-answer.webp) |
+
+More in [docs/screenshots](docs/screenshots).
 
 ## Quick start (localhost)
 
@@ -66,7 +73,7 @@ On the emulator, the host's localhost is `http://10.0.2.2:8765` (the default on 
 ## Tests
 
 ```bash
-cd server && bun test                     # 31 tests: scheduler, FSRS, templates, search,
+cd server && bun test                     # 32 tests: scheduler, FSRS, templates, search,
                                           # import/export (real Anki fixtures), encryption, auth, HTTP API
 cd e2e && bun install
 bun ui-smoke.mjs http://localhost:8765 ./shots ../server/test/fixtures/modern.apkg   # drives the web UI (fresh server)

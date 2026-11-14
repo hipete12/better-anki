@@ -9,6 +9,7 @@
     <title>Better Anki</title>
     <script>
       try { var t = localStorage.getItem("ba.theme") || "system"; if (t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches)) document.documentElement.classList.add("dark"); } catch (e) {}
+      try { var f = localStorage.getItem("ba.font"); if (f && f !== "inter") document.documentElement.dataset.font = f; } catch (e) {}
     </script>
   </head>
   <body>

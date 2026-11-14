@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { ArrowLeft, Undo2, MoreHorizontal, Flag, Star, EyeOff, PauseCircle, Pencil, Info, Volume2, Trash2, CalendarClock, RotateCcw, PartyPopper, Settings2, Sparkles, Clock } from "lucide-react";
+import { ArrowLeft, Undo2, MoreHorizontal, Flag, Star, EyeOff, PauseCircle, Pencil, Info, Volume2, Trash2, CalendarClock, RotateCcw, Settings2, Clock, ZoomIn, ZoomOut } from "lucide-react";
 import { api, type StudyState } from "../lib/api";
-import { useIsDark } from "../lib/hooks";
-import { Button, cx, IconButton, Loading, Menu, useDialogs, useToast } from "../components/ui";
+import { useIsDark, useLocalStorage } from "../lib/hooks";
+import { Button, cx, IconButton, Loading, Menu, useDialogs, useToast, Kbd } from "../components/ui";
+import { Stat } from "../components/visual";
 import CardFrame, { type CardFrameHandle } from "../components/CardFrame";
 import EditNoteDialog from "../components/EditNoteDialog";
 import CardInfoDialog from "../components/CardInfoDialog";
@@ -20,10 +21,10 @@ const FLAGS = [
 ];
 
 const BUTTONS = [
-  { ease: 1, label: "Again", cls: "text-red-600 dark:text-red-400 hover:bg-red-500/10 border-red-500/30" },
-  { ease: 2, label: "Hard", cls: "text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 border-amber-500/30" },
-  { ease: 3, label: "Good", cls: "text-green-600 dark:text-green-400 hover:bg-green-500/10 border-green-500/30" },
-  { ease: 4, label: "Easy", cls: "text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 border-blue-500/30" },
+  { ease: 1, label: "Again", text: "text-again", hover: "hover:border-again/50" },
+  { ease: 2, label: "Hard", text: "text-hard", hover: "hover:border-hard/50" },
+  { ease: 3, label: "Good", text: "text-good", hover: "hover:border-good/50" },
+  { ease: 4, label: "Easy", text: "text-easy", hover: "hover:border-easy/50" },
 ];
 
 export default function Study() {
@@ -44,8 +45,13 @@ export default function Study() {
   const shownAt = useRef(Date.now());
   const sessionStart = useRef(Date.now());
   const sessionCount = useRef(0);
+  const [session, setSession] = useState({ count: 0, again: 0, ms: 0 });
   const frame = useRef<CardFrameHandle>(null);
   const q = `?night=${dark ? 1 : 0}&platform=web`;
+  // card zoom (like Anki's Ctrl +/-): a little larger by default on big screens
+  const [zoom, setZoom] = useLocalStorage<number>("ba.cardZoom", typeof window !== "undefined" && window.innerWidth >= 768 ? 1.2 : 1);
+  const bumpZoom = useCallback((d: number) => setZoom(d === 0 ? 1 : Math.round(Math.min(2.5, Math.max(0.6, zoom + d)) * 10) / 10), [zoom, setZoom]);
+  const zoomed = (html: string) => (zoom === 1 ? html : html.replace("<head>", `<head><style>html{zoom:${zoom}}body{min-height:calc(100vh / ${zoom})}</style>`));
 
   const apply = useCallback((s: StudyState) => {
     setState(s);
@@ -107,6 +113,7 @@ export default function Study() {
       try {
         const s = await api.post<StudyState>(`/api/study/${deckId}/answer${q}`, { cardId: card.id, ease, timeMs: Date.now() - shownAt.current });
         sessionCount.current++;
+        setSession((p) => ({ count: p.count + 1, again: p.again + (ease === 1 ? 1 : 0), ms: p.ms + Math.min(Date.now() - shownAt.current, (card.options.capAnswerSecs || 60) * 1000) }));
         if (s.answered?.leech) toast(s.answered.suspended ? "Leech: card suspended" : "Leech: card tagged 'leech'", "info");
         const tb = s.timeboxMins;
         if (tb > 0 && Date.now() - sessionStart.current > tb * 60_000) {
@@ -165,6 +172,10 @@ export default function Study() {
       const mod = e.ctrl || e.meta;
       if (editNote || infoCard || custom) return;
       if (mod && e.key === "z") return doUndo();
+      if (mod && (e.key === "=" || e.key === "+" || e.key === "-" || e.key === "0")) {
+        e.preventDefault?.();
+        return bumpZoom(e.key === "-" ? -0.1 : e.key === "0" ? 0 : 0.1);
+      }
       if (mod && /^[1-7]$/.test(e.key)) {
         e.preventDefault?.();
         return action("flag", { flag: Number(e.key) });
@@ -205,7 +216,7 @@ export default function Study() {
           return deleteNote();
       }
     },
-    [showAnswer, answer, reveal, doUndo, card, action, navigate, deckId, deleteNote, editNote, infoCard, custom],
+    [showAnswer, answer, reveal, doUndo, card, action, navigate, deckId, deleteNote, editNote, infoCard, custom, bumpZoom],
   );
 
   useEffect(() => {
@@ -248,32 +259,34 @@ export default function Study() {
   const qn = card?.queueName;
   const flag = FLAGS.find((f) => f.n === card?.flags);
 
+  const countCls = (n: number, which: string, color: string) => cx("tnum", n ? color : "text-faint", qn === which && "underline decoration-2 underline-offset-4");
+
   return (
     <div className="flex flex-col h-full bg-app">
       {/* top bar */}
-      <header className="relative flex items-center gap-2 px-2 sm:px-4 h-14 border-b border-app bg-panel">
-        <IconButton label="Back" onClick={() => navigate(`/deck/${deckId}`)}>
+      <header className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 h-14 border-b border-app bg-panel">
+        <IconButton label="Back (Esc)" onClick={() => navigate(`/deck/${deckId}`)}>
           <ArrowLeft className="size-5" />
         </IconButton>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{state.deck.name}</div>
-          {card && card.deckName !== state.deck.name && <div className="truncate text-[11px] text-muted">{card.deckName}</div>}
+          <div className="truncate text-sm font-medium leading-tight">{state.deck.name.split("::").pop()}</div>
+          {card && card.deckName !== state.deck.name && <div className="truncate text-[11px] text-muted leading-tight">{card.deckName.split("::").slice(-2).join(" / ")}</div>}
         </div>
-        <div className="flex items-center gap-3 text-sm font-semibold tabular-nums mr-1">
-          <span className={cx("text-new", qn === "new" && "underline underline-offset-4 decoration-2")}>{counts.new}</span>
-          <span className={cx("text-learn", qn === "learn" && "underline underline-offset-4 decoration-2")}>{counts.learn}</span>
-          <span className={cx("text-due", qn === "review" && "underline underline-offset-4 decoration-2")}>{counts.review}</span>
+        <div className="flex items-center gap-3 text-sm font-semibold mx-1">
+          <span title="New" className={countCls(counts.new, "new", "text-new")}>{counts.new}</span>
+          <span title="Learning" className={countCls(counts.learn, "learn", "text-learn")}>{counts.learn}</span>
+          <span title="To review" className={countCls(counts.review, "review", "text-due")}>{counts.review}</span>
         </div>
         {card?.options.showTimer && (
-          <span className="hidden sm:flex items-center gap-1 text-xs text-muted tabular-nums w-14">
+          <span className="hidden sm:inline-flex items-center gap-1 text-xs text-muted tnum w-12">
             <Clock className="size-3.5" />
             {Math.min(Math.floor(elapsed / 1000), card.options.capAnswerSecs)}s
           </span>
         )}
-        {flag && <Flag className="size-4" style={{ color: flag.color, fill: flag.color }} />}
-        {card?.marked && <Star className="size-4 text-amber-500 fill-amber-500" />}
+        {flag && <Flag className="size-4 mx-1" style={{ color: flag.color, fill: flag.color }} />}
+        {card?.marked && <Star className="size-4 mx-1 text-amber-500 fill-amber-500" />}
         <IconButton label="Undo (Ctrl+Z)" onClick={doUndo} disabled={!state.undo.available}>
-          <Undo2 className="size-5" />
+          <Undo2 className="size-[18px]" />
         </IconButton>
         {card && (
           <Menu
@@ -286,6 +299,8 @@ export default function Study() {
               { label: "Edit note", icon: <Pencil />, shortcut: "E", onClick: () => setEditNote(card.nid) },
               { label: "Card info", icon: <Info />, shortcut: "I", onClick: () => setInfoCard(card.id) },
               { label: "Replay audio", icon: <Volume2 />, shortcut: "R", onClick: () => frame.current?.replay() },
+              { label: `Zoom in (${Math.round(zoom * 100)}%)`, icon: <ZoomIn />, shortcut: "Ctrl+=", onClick: () => bumpZoom(0.1) },
+              { label: "Zoom out", icon: <ZoomOut />, shortcut: "Ctrl+-", onClick: () => bumpZoom(-0.1) },
               { divider: true, label: "" },
               { label: card.marked ? "Unmark note" : "Mark note", icon: <Star />, shortcut: "*", onClick: () => action("mark") },
               ...FLAGS.map((f) => ({ label: `${card.flags === f.n ? "Remove" : ""} ${f.name} flag`.trim(), icon: <Flag style={{ color: f.color, fill: card.flags === f.n ? f.color : "none" }} />, shortcut: `Ctrl+${f.n}`, onClick: () => action("flag", { flag: f.n }) })),
@@ -302,28 +317,32 @@ export default function Study() {
             ]}
           />
         )}
-        <div className="absolute left-0 bottom-0 h-0.5 bg-brand-500 transition-all duration-500" style={{ width: `${progress}%` }} />
       </header>
+      <div className="h-0.5 bg-panel-2" role="progressbar" aria-valuenow={Math.round(progress)} aria-valuemin={0} aria-valuemax={100} aria-label="Today's progress">
+        <div className="h-full bg-brand-500 transition-[width] duration-500" style={{ width: `${progress}%` }} />
+      </div>
 
       {card ? (
         <>
-          <div className="flex-1 min-h-0 relative">
-            <CardFrame ref={frame} key={`${card.id}-${showAnswer ? "a" : "q"}`} html={showAnswer ? (answerPage ?? card.answer) : card.question} onKey={handleKey} onMessage={(type) => type === "showAnswer" && reveal()} className="absolute inset-0 w-full h-full border-0" />
+          <div className="flex-1 min-h-0 sm:px-6 sm:pt-6">
+            <div className="relative mx-auto h-full max-w-[860px] overflow-hidden bg-panel sm:rounded-xl sm:border sm:border-app">
+              <CardFrame ref={frame} key={`${card.id}-${showAnswer ? "a" : "q"}`} html={zoomed(showAnswer ? (answerPage ?? card.answer) : card.question)} onKey={handleKey} onMessage={(type) => type === "showAnswer" && reveal()} className="absolute inset-0 w-full h-full border-0" />
+            </div>
           </div>
-          <footer className="border-t border-app bg-panel px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <div className="mx-auto max-w-xl">
+          <footer className="border-t border-app bg-panel sm:border-0 sm:bg-transparent px-3 sm:px-6 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-6">
+            <div className="mx-auto max-w-[560px]">
               {!showAnswer ? (
-                <Button variant="primary" size="lg" className="w-full" onClick={reveal}>
-                  Show answer <kbd className="hidden sm:inline text-[11px] opacity-70 font-mono ml-1">Space</kbd>
+                <Button variant="primary" size="lg" className="w-full h-12" onClick={reveal}>
+                  Show answer <Kbd onBrand className="hidden sm:inline-flex ml-1">Space</Kbd>
                 </Button>
               ) : (
                 <div className="grid grid-cols-4 gap-2">
                   {BUTTONS.map((b) => {
                     const info = card.buttons.find((x) => x.ease === b.ease);
                     return (
-                      <button key={b.ease} disabled={busy} onClick={() => answer(b.ease)} className={cx("flex flex-col items-center justify-center rounded-xl border bg-panel h-14 transition active:scale-[.97] disabled:opacity-60", b.cls)}>
-                        <span className="text-[11px] font-medium opacity-80 tabular-nums">{info?.label}</span>
-                        <span className="text-sm font-semibold">{b.label}</span>
+                      <button key={b.ease} disabled={busy} onClick={() => answer(b.ease)} title={`${b.label} (${b.ease})`} className={cx("panel flex h-14 flex-col items-center justify-center rounded-lg transition-colors hover:bg-panel-2 active:bg-panel-2 disabled:opacity-60", b.hover)}>
+                        <span className={cx("text-sm font-semibold", b.text)}>{b.label}</span>
+                        <span className="mt-0.5 text-xs text-muted tnum">{info?.label}</span>
                       </button>
                     );
                   })}
@@ -333,7 +352,7 @@ export default function Study() {
           </footer>
         </>
       ) : (
-        <Congrats state={state} deckId={deckId} onCustom={() => setCustom(true)} onReload={load} />
+        <Congrats state={state} deckId={deckId} session={session} onCustom={() => setCustom(true)} onReload={load} />
       )}
       <EditNoteDialog noteId={editNote} onClose={() => setEditNote(null)} onSaved={load} />
       <CardInfoDialog cardId={infoCard} onClose={() => setInfoCard(null)} />
@@ -342,21 +361,27 @@ export default function Study() {
   );
 }
 
-function Congrats({ state, deckId, onCustom, onReload }: { state: StudyState; deckId: number; onCustom: () => void; onReload: () => void }) {
+function Congrats({ state, deckId, session, onCustom, onReload }: { state: StudyState; deckId: number; session: { count: number; again: number; ms: number }; onCustom: () => void; onReload: () => void }) {
   const nextIn = state.nextLearnDue ? Math.max(0, Math.round((state.nextLearnDue * 1000 - Date.now()) / 60000)) : null;
+  const t = state.today;
   return (
-    <div className="flex-1 flex items-center justify-center p-6">
-      <div className="text-center max-w-sm animate-pop">
-        <div className="mx-auto mb-5 size-20 rounded-3xl bg-gradient-to-br from-brand-400 to-violet-600 text-white flex items-center justify-center shadow-lg shadow-brand-600/30">
-          <PartyPopper className="size-10" />
+    <div className="flex-1 overflow-y-auto flex items-center justify-center p-6">
+      <div className="w-full max-w-sm text-center">
+        <h2 className="text-2xl font-semibold">{session.count ? "Session complete" : "All done"}</h2>
+        <p className="text-muted mt-1.5 text-sm">You've finished this deck for now.</p>
+        <div className="mt-7 grid grid-cols-3 gap-4">
+          <Stat value={session.count} label="this session" valueClass="text-brand-600 dark:text-brand-400" />
+          <Stat value={t.cards} label="today" />
+          <Stat value={t.cards ? `${Math.round(((t.cards - t.again) / t.cards) * 100)}%` : "–"} label="correct" valueClass={t.cards ? "text-due" : "text-faint"} />
         </div>
-        <h2 className="text-2xl font-bold tracking-tight">Congratulations!</h2>
-        <p className="text-muted mt-2">You've finished this deck for now.</p>
-        {nextIn !== null && <p className="text-sm mt-3">The next learning card is ready in {nextIn < 1 ? "less than a minute" : `${nextIn} minute${nextIn === 1 ? "" : "s"}`}.</p>}
-        <p className="text-sm text-muted mt-1">
-          Today: {state.today.cards} cards in {Math.round(state.today.timeMs / 60000)} min
-        </p>
-        <div className="flex flex-col gap-2 mt-6">
+        {nextIn !== null && <p className="mt-6 text-sm text-muted">The next learning card is ready in {nextIn < 1 ? "less than a minute" : `${nextIn} minute${nextIn === 1 ? "" : "s"}`}.</p>}
+        <div className="flex flex-col gap-2 mt-8">
+          <Link to="/">
+            <Button variant="primary" className="w-full">
+              Back to decks
+            </Button>
+          </Link>
+          {state.deck.kind === 0 && <Button onClick={onCustom}>Custom study session</Button>}
           {state.buried > 0 && (
             <Button
               onClick={async () => {
@@ -367,16 +392,6 @@ function Congrats({ state, deckId, onCustom, onReload }: { state: StudyState; de
               Unbury {state.buried} card{state.buried === 1 ? "" : "s"}
             </Button>
           )}
-          {state.deck.kind === 0 && (
-            <Button variant="subtle" onClick={onCustom}>
-              <Sparkles className="size-4" /> Custom study session
-            </Button>
-          )}
-          <Link to="/">
-            <Button variant="primary" className="w-full">
-              Back to decks
-            </Button>
-          </Link>
         </div>
       </div>
     </div>

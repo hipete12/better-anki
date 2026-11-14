@@ -215,34 +215,25 @@ fun DeckOverviewScreen(app: AppState, id: Long) {
         Column(Modifier.padding(horizontal = 20.dp)) {
             if (parts.size > 1) Text(parts.dropLast(1).joinToString(" / "), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
             Text(parts.last(), style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(18.dp))
-            Panel(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(22.dp)) {
-                    Row(Modifier.fillMaxWidth()) {
-                        listOf(Triple(d.counts.new, "New", NewBlue), Triple(d.counts.learn, "Learning", LearnRed), Triple(d.counts.review, "To review", DueGreen)).forEach { (n, l, c) ->
-                            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("$n", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = c)
-                                Text(l, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(22.dp))
-                    Button(
-                        onClick = { app.push(Screen.Study(id)) },
-                        modifier = Modifier.fillMaxWidth().height(54.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = BrandDark, contentColor = Color.White),
-                    ) { Icon(Icons.Default.PlayArrow, null); Text("  Study now", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                }
+            d.configName?.let { Text("$it preset", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Spacer(Modifier.height(28.dp))
+            val ac = appColors
+            Row(horizontalArrangement = Arrangement.spacedBy(36.dp)) {
+                Stat("${d.counts.new}", "New", color = if (d.counts.new > 0) ac.new else ac.faint, large = true)
+                Stat("${d.counts.learn}", "Learning", color = if (d.counts.learn > 0) ac.learn else ac.faint, large = true)
+                Stat("${d.counts.review}", "To review", color = if (d.counts.review > 0) ac.due else ac.faint, large = true)
             }
-            Spacer(Modifier.height(12.dp))
-            if (d.buried > 0) OutlinedButton(onClick = { scope.launch { app.api.post<JsonObject>("/api/decks/$id/unbury"); load() } }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("Unbury ${d.buried} cards") }
-            d.configName?.let {
-                Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 6.dp))
-                    Text("Preset: $it (edit options in the web app)", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+            Spacer(Modifier.height(28.dp))
+            val due = d.counts.new + d.counts.learn + d.counts.review
+            if (due > 0) Button(
+                onClick = { app.push(Screen.Study(id)) },
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BrandDark, contentColor = Color.White),
+            ) { Text("Study now", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+            else Text("Nothing due right now.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
+            if (d.buried > 0) OutlinedButton(onClick = { scope.launch { app.api.post<JsonObject>("/api/decks/$id/unbury"); load() } }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), shape = RoundedCornerShape(10.dp)) { Text("Unbury ${d.buried} cards") }
+            Text("Deck options, custom study and export are in the web app.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp))
         }
     }
 }

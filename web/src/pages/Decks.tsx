@@ -1,17 +1,20 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronRight, MoreHorizontal, Plus, Upload, Filter, Flame, Clock, Target, Settings2, Pencil, Trash2, Download, Sparkles, RefreshCw, Eraser, FolderPlus, Play, Layers } from "lucide-react";
-import { api, fmt, type DeckNode, type Today } from "../lib/api";
+import { ChevronRight, MoreHorizontal, Plus, Upload, Filter, Settings2, Pencil, Trash2, Download, Sparkles, RefreshCw, Eraser, FolderPlus, Play, Table2, LineChart as LineChartIcon } from "lucide-react";
+import { api, type DeckNode, type HomeSummary } from "../lib/api";
 import { useApi } from "../lib/hooks";
-import { Button, Card, cx, EmptyState, Loading, Menu, PageHeader, useDialogs, useToast, IconButton } from "../components/ui";
+import { Button, cx, EmptyState, Loading, Menu, PageHeader, useDialogs, useToast, IconButton } from "../components/ui";
+import { LineChart, type Series } from "../components/charts";
 import ImportDialog from "../components/ImportDialog";
 import ExportDialog from "../components/ExportDialog";
 import FilteredDeckDialog from "../components/FilteredDeckDialog";
 import CustomStudyDialog from "../components/CustomStudyDialog";
 
+const GRID = "grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_repeat(3,56px)_40px] items-center";
+
 export default function Decks() {
-  const { data, loading, reload } = useApi(() => api.get<{ tree: DeckNode[]; today: Today; currentDeckId: number }>("/api/decks"), [], { live: true });
-  const stats = useApi(() => api.get<{ streak: number; heatmap: { count: number }[] }>("/api/stats?days=7"), [], { live: ["review"] });
+  const { data, loading, reload } = useApi(() => api.get<{ tree: DeckNode[]; currentDeckId: number }>("/api/decks"), [], { live: true });
+  const home = useApi(() => api.get<HomeSummary>("/api/home"), [], { live: true });
   const [importOpen, setImportOpen] = useState(false);
   const [filtered, setFiltered] = useState<{ open: boolean; deckId?: number }>({ open: false });
   const [exportDeck, setExportDeck] = useState<{ open: boolean; deckId?: number | null }>({ open: false });
@@ -30,23 +33,21 @@ export default function Decks() {
     }
   };
 
-  const totals = (data?.tree ?? []).reduce((a, d) => ({ new: a.new + d.counts.new, learn: a.learn + d.counts.learn, review: a.review + d.counts.review }), { new: 0, learn: 0, review: 0 });
-  const dueTotal = totals.new + totals.learn + totals.review;
-  const today = data?.today;
+  const tree = data?.tree ?? [];
+  const h = home.data;
 
   return (
-    <div className="mx-auto max-w-4xl px-4 sm:px-6 py-6 sm:py-10">
+    <div className="mx-auto max-w-3xl px-4 sm:px-6 py-6 sm:py-10">
       <PageHeader
         title="Decks"
-        subtitle={dueTotal ? `${dueTotal} card${dueTotal === 1 ? "" : "s"} waiting today` : "You're all caught up"}
         actions={
           <>
             <Button onClick={() => setImportOpen(true)}>
               <Upload className="size-4" /> Import
             </Button>
             <Menu
-              trigger={(t) => (
-                <Button variant="primary" onClick={t}>
+              trigger={(tr) => (
+                <Button variant="primary" onClick={tr}>
                   <Plus className="size-4" /> Create
                 </Button>
               )}
@@ -59,43 +60,58 @@ export default function Decks() {
         }
       />
 
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <StatTile icon={<Target className="size-4" />} label="Studied today" value={today ? String(today.cards) : "–"} sub={today ? `${today.again} again` : ""} />
-        <StatTile icon={<Clock className="size-4" />} label="Time today" value={today ? fmt.duration(today.timeMs) : "–"} sub={today && today.cards ? `${(today.timeMs / today.cards / 1000).toFixed(1)}s / card` : ""} />
-        <StatTile icon={<Flame className="size-4" />} label="Streak" value={stats.data ? `${stats.data.streak}d` : "–"} sub={today && today.mature ? `${Math.round((today.matureCorrect / today.mature) * 100)}% mature retention` : "keep it going"} />
-      </div>
+      {tree.length > 0 && h && <CardTrend trend={h.trend} />}
 
-      <Card className="overflow-hidden">
-        <div className="hidden sm:grid grid-cols-[1fr_repeat(3,64px)_44px] items-center px-4 py-2.5 text-xs font-medium text-muted border-b border-app">
-          <span>Deck</span>
-          <span className="text-right">New</span>
-          <span className="text-right">Learn</span>
-          <span className="text-right">Due</span>
-          <span />
-        </div>
+      <div className="panel rounded-xl overflow-hidden">
         {loading && !data ? (
           <Loading />
-        ) : !data?.tree.length ? (
-          <EmptyState icon={<Layers />} title="No decks yet">
-            Create a deck or import an Anki package (.apkg / .colpkg) to get started.
+        ) : !tree.length ? (
+          <EmptyState
+            title="No decks yet"
+            action={
+              <>
+                <Button variant="primary" onClick={() => setImportOpen(true)}>
+                  Import a deck
+                </Button>
+                <Button onClick={() => createDeck()}>Create a deck</Button>
+              </>
+            }
+          >
+            Import an Anki package (.apkg / .colpkg) or create a deck to get started.
           </EmptyState>
         ) : (
-          <div>
-            {data.tree.map((d) => (
-              <DeckRow key={d.id} deck={d} depth={0} reload={reload} onFiltered={(id) => setFiltered({ open: true, deckId: id })} onExport={(id) => setExportDeck({ open: true, deckId: id })} onCustom={setCustom} onCreateSub={createDeck} current={data.currentDeckId} />
+          <>
+            <div className={cx(GRID, "hidden sm:grid h-8 px-5 text-xs text-muted border-b border-app")}>
+              <span>Deck</span>
+              <span className="text-right">New</span>
+              <span className="text-right">Learn</span>
+              <span className="text-right">Due</span>
+              <span />
+            </div>
+            {tree.map((d) => (
+              <DeckRow key={d.id} deck={d} depth={0} reload={reload} onFiltered={(id) => setFiltered({ open: true, deckId: id })} onExport={(id) => setExportDeck({ open: true, deckId: id })} onCustom={setCustom} onCreateSub={createDeck} current={data?.currentDeckId ?? 0} />
             ))}
-          </div>
+          </>
         )}
-      </Card>
-      <div className="flex flex-wrap gap-2 mt-4 justify-center text-xs text-muted">
-        <button className="hover:text-app" onClick={() => setExportDeck({ open: true, deckId: null })}>
-          Export collection
-        </button>
-        <span>·</span>
-        <Link to="/browse" className="hover:text-app">
-          Browse all cards
-        </Link>
       </div>
+      {tree.length > 0 && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 px-1 text-xs text-muted">
+          {h && (
+            <span>
+              {h.cards.total.toLocaleString()} cards · {h.cards.mature.toLocaleString()} mature
+              {h.retention30 != null && ` · ${h.retention30.toFixed(0)}% retention (30 days)`}
+            </span>
+          )}
+          <span className="ml-auto flex gap-3">
+            <button className="hover:text-app" onClick={() => setExportDeck({ open: true, deckId: null })}>
+              Export collection
+            </button>
+            <Link to="/browse" className="hover:text-app">
+              Browse all cards
+            </Link>
+          </span>
+        </div>
+      )}
 
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} onDone={reload} />
       <FilteredDeckDialog open={filtered.open} deckId={filtered.deckId} onClose={() => setFiltered({ open: false })} onDone={reload} />
@@ -105,21 +121,72 @@ export default function Decks() {
   );
 }
 
-function StatTile({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub?: string }) {
+const TREND_SERIES: Series[] = [
+  { key: "learning", label: "Learning", color: "var(--series-1)" },
+  { key: "young", label: "Young", color: "var(--series-2)" },
+  { key: "mature", label: "Mature", color: "var(--series-3)" },
+];
+
+/** How many cards are learning, young and mature each day (new cards left out). */
+function CardTrend({ trend }: { trend: HomeSummary["trend"] }) {
+  const [showTable, setShowTable] = useState(false);
+  const first = trend.findIndex((d) => d.learning + d.young + d.mature > 0);
+  if (first < 0) return null; // nothing studied yet
+  // start just before the first studied card, but show at least two weeks
+  const days = trend.slice(Math.max(0, Math.min(first - 1, trend.length - 14)));
+  const data = days.map((d) => ({ learning: d.learning, young: d.young, mature: d.mature }));
+  const last = data[data.length - 1];
+  const label = (i: number) => (i === days.length - 1 ? "Today" : new Date(days[i].date).toLocaleDateString(undefined, { timeZone: "UTC", month: "short", day: "numeric" }));
   return (
-    <Card className="px-4 py-3.5">
-      <div className="flex items-center gap-1.5 text-xs text-muted">
-        {icon}
-        {label}
+    <section className="mb-8" aria-label="Cards by state">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mb-2">
+        {TREND_SERIES.map((s) => (
+          <span key={s.key} className="inline-flex items-center gap-1.5 text-xs">
+            <span className="h-0.5 w-3 rounded-full" style={{ background: s.color }} />
+            <span className="text-muted">{s.label}</span>
+            <span className="text-sm font-semibold tnum">{last[s.key as keyof typeof last].toLocaleString()}</span>
+          </span>
+        ))}
+        <IconButton label={showTable ? "Show chart" : "Show data as table"} onClick={() => setShowTable(!showTable)} className="ml-auto size-7">
+          {showTable ? <LineChartIcon className="size-4" /> : <Table2 className="size-4" />}
+        </IconButton>
       </div>
-      <div className="text-2xl font-bold tracking-tight mt-1">{value}</div>
-      {sub && <div className="text-[11px] text-muted mt-0.5 truncate">{sub}</div>}
-    </Card>
+      {showTable ? (
+        <div className="max-h-56 overflow-auto rounded-lg border border-app">
+          <table className="w-full text-xs tnum">
+            <thead className="bg-panel-2 sticky top-0">
+              <tr>
+                <th className="px-3 py-1.5 text-left font-medium">Day</th>
+                {TREND_SERIES.map((s) => (
+                  <th key={s.key} className="px-3 py-1.5 text-right font-medium">
+                    {s.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data
+                .map((d, i) => (
+                  <tr key={i} className="border-t border-app">
+                    <td className="px-3 py-1">{label(i)}</td>
+                    <td className="px-3 py-1 text-right">{d.learning.toLocaleString()}</td>
+                    <td className="px-3 py-1 text-right">{d.young.toLocaleString()}</td>
+                    <td className="px-3 py-1 text-right">{d.mature.toLocaleString()}</td>
+                  </tr>
+                ))
+                .reverse()}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <LineChart data={data} series={TREND_SERIES} xLabel={label} ariaLabel={`Cards by state over the last ${days.length} days. Today: ${last.learning} learning, ${last.young} young, ${last.mature} mature.`} />
+      )}
+    </section>
   );
 }
 
-function CountCell({ n, color }: { n: number; color: string }) {
-  return <span className={cx("text-right tabular-nums text-sm font-semibold", n ? color : "text-muted/40 font-normal")}>{n}</span>;
+function Count({ n, color }: { n: number; color: string }) {
+  return <span className={cx("text-right tnum text-sm", n ? cx(color, "font-semibold") : "text-faint")}>{n}</span>;
 }
 
 function DeckRow({ deck, depth, reload, onFiltered, onExport, onCustom, onCreateSub, current }: { deck: DeckNode; depth: number; reload: () => void; onFiltered: (id: number) => void; onExport: (id: number) => void; onCustom: (id: number) => void; onCreateSub: (parent: string) => void; current: number }) {
@@ -154,38 +221,42 @@ function DeckRow({ deck, depth, reload, onFiltered, onExport, onCustom, onCreate
     }
   };
   const { counts } = deck;
+  const due = counts.new + counts.learn + counts.review;
   return (
     <>
-      <div className={cx("group grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_repeat(3,64px)_44px] items-center px-2 sm:px-4 h-14 border-b border-app last:border-0 hover:bg-panel-2/60 transition", deck.id === current && "bg-brand-500/[0.04]")}>
+      <div className={cx(GRID, "group h-10 px-5 border-b border-app last:border-0 hover:bg-panel-2/50 transition-colors")}>
+        {/* the expand chevron sits in the gutter left of the name, so names line up with the "Deck" header */}
         <div className="flex items-center min-w-0" style={{ paddingLeft: depth * 20 }}>
-          <button onClick={toggle} className={cx("size-7 flex items-center justify-center rounded-lg text-muted hover:bg-panel-2", !hasChildren && "invisible")} aria-label={collapsed ? "Expand" : "Collapse"}>
-            <ChevronRight className={cx("size-4 transition-transform", !collapsed && "rotate-90")} />
+          <button onClick={toggle} className={cx("-ml-5 size-5 flex shrink-0 items-center justify-center rounded text-faint hover:text-app", !hasChildren && "invisible")} aria-label={collapsed ? "Expand" : "Collapse"}>
+            <ChevronRight className={cx("size-3.5 transition-transform", !collapsed && "rotate-90")} />
           </button>
-          <Link to={`/deck/${deck.id}`} className={cx("truncate font-medium hover:text-brand-600 dark:hover:text-brand-300", deck.kind === 1 && "text-brand-600 dark:text-brand-300 italic")}>
+          <Link to={`/deck/${deck.id}`} className={cx("truncate text-sm hover:text-brand-600 dark:hover:text-brand-400", depth === 0 ? "font-medium" : "", deck.kind === 1 && "italic")}>
             {deck.shortName}
           </Link>
-          {deck.kind === 1 && <Filter className="size-3.5 ml-1.5 text-brand-500 shrink-0" />}
+          {deck.kind === 1 && <span className="ml-2 text-[11px] text-brand-600 dark:text-brand-400">filtered</span>}
+          {deck.id === current && <span className="ml-2 size-1.5 shrink-0 rounded-full bg-brand-500" title="Current deck" />}
+          <span className="ml-2 hidden sm:inline text-xs text-faint tnum">{deck.total}</span>
         </div>
         <div className="flex sm:contents items-center gap-3 pr-1">
-          <span className="sm:hidden flex gap-2.5 text-sm tabular-nums font-semibold">
-            <span className={counts.new ? "text-new" : "text-muted/40"}>{counts.new}</span>
-            <span className={counts.learn ? "text-learn" : "text-muted/40"}>{counts.learn}</span>
-            <span className={counts.review ? "text-due" : "text-muted/40"}>{counts.review}</span>
+          <span className="sm:hidden flex gap-2.5">
+            <Count n={counts.new} color="text-new" />
+            <Count n={counts.learn} color="text-learn" />
+            <Count n={counts.review} color="text-due" />
           </span>
           <span className="hidden sm:contents">
-            <CountCell n={counts.new} color="text-new" />
-            <CountCell n={counts.learn} color="text-learn" />
-            <CountCell n={counts.review} color="text-due" />
+            <Count n={counts.new} color="text-new" />
+            <Count n={counts.learn} color="text-learn" />
+            <Count n={counts.review} color="text-due" />
           </span>
           <div className="flex justify-end">
             <Menu
               trigger={(t) => (
-                <IconButton label="Deck actions" onClick={t} className="opacity-70 group-hover:opacity-100">
-                  <MoreHorizontal className="size-5" />
+                <IconButton label="Deck actions" onClick={t} className="size-8 sm:opacity-0 group-hover:opacity-100 focus:opacity-100">
+                  <MoreHorizontal className="size-4" />
                 </IconButton>
               )}
               items={[
-                { label: "Study now", icon: <Play />, onClick: () => navigate(`/study/${deck.id}`) },
+                { label: "Study now", icon: <Play />, onClick: () => navigate(`/study/${deck.id}`), disabled: !due },
                 ...(deck.kind === 0
                   ? [
                       { label: "Options", icon: <Settings2 />, onClick: () => navigate(`/options/${deck.id}`) },

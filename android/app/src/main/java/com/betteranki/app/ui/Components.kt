@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.sp
 fun Panel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) { content() }
@@ -66,11 +66,12 @@ fun InfoBox(text: String, good: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun CountsRow(new: Int, learn: Int, review: Int, highlight: String? = null) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        listOf(Triple(new, NewBlue, "new"), Triple(learn, LearnRed, "learn"), Triple(review, DueGreen, "review")).forEach { (n, c, k) ->
+        val ac = appColors
+        listOf(Triple(new, ac.new, "new"), Triple(learn, ac.learn, "learn"), Triple(review, ac.due, "review")).forEach { (n, c, k) ->
             Text(
                 "$n",
-                color = if (n > 0) c else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                fontWeight = if (n > 0) FontWeight.Bold else FontWeight.Normal,
+                color = if (n > 0) c else ac.faint,
+                fontWeight = if (n > 0) FontWeight.SemiBold else FontWeight.Normal,
                 fontSize = 15.sp,
                 textDecoration = if (highlight == k) androidx.compose.ui.text.style.TextDecoration.Underline else null,
             )
@@ -97,14 +98,12 @@ fun <T> Dropdown(label: String, items: List<T>, selected: T?, itemLabel: (T) -> 
     }
 }
 
+/** A number with a small label under it; color carries the meaning (no boxes or icons). */
 @Composable
-fun StatTile(label: String, value: String, sub: String, modifier: Modifier = Modifier) {
-    Panel(modifier) {
-        Column(Modifier.padding(14.dp)) {
-            Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-            Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
-            Text(sub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
+fun Stat(value: String, label: String, modifier: Modifier = Modifier, color: Color = Color.Unspecified, large: Boolean = false) {
+    Column(modifier) {
+        Text(value, fontSize = if (large) 34.sp else 22.sp, fontWeight = FontWeight.SemiBold, color = color, letterSpacing = (-0.3).sp, maxLines = 1)
+        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

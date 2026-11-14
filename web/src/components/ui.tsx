@@ -8,11 +8,11 @@ export function cx(...c: (string | false | null | undefined)[]) {
 
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "subtle";
 const VARIANTS: Record<Variant, string> = {
-  primary: "bg-brand-600 text-white hover:bg-brand-500 active:bg-brand-700 shadow-sm shadow-brand-600/25",
+  primary: "bg-brand-600 text-white hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-400",
   secondary: "panel text-app hover:bg-panel-2",
   ghost: "text-app hover:bg-panel-2",
-  danger: "bg-red-600 text-white hover:bg-red-500",
-  subtle: "bg-brand-500/10 text-brand-600 dark:text-brand-300 hover:bg-brand-500/20",
+  danger: "bg-red-600 text-white hover:bg-red-700",
+  subtle: "bg-brand-500/10 text-brand-700 dark:text-brand-300 hover:bg-brand-500/15",
 };
 
 export function Button({ variant = "secondary", size = "md", loading, className, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: "sm" | "md" | "lg"; loading?: boolean }) {
@@ -21,8 +21,8 @@ export function Button({ variant = "secondary", size = "md", loading, className,
       {...rest}
       disabled={rest.disabled || loading}
       className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none select-none whitespace-nowrap focus-visible:outline-2 focus-visible:outline-brand-500 outline-offset-2",
-        size === "sm" ? "h-8 px-3 text-sm" : size === "lg" ? "h-12 px-6 text-base" : "h-10 px-4 text-sm",
+        "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none select-none whitespace-nowrap focus-visible:outline-2 focus-visible:outline-brand-500 outline-offset-2",
+        size === "sm" ? "h-8 px-3 text-[13px]" : size === "lg" ? "h-11 px-5 text-[15px]" : "h-9 px-3.5 text-sm",
         VARIANTS[variant],
         className,
       )}
@@ -35,13 +35,13 @@ export function Button({ variant = "secondary", size = "md", loading, className,
 
 export function IconButton({ className, label, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
   return (
-    <button {...rest} aria-label={label} title={label} className={cx("inline-flex size-9 items-center justify-center rounded-xl text-muted hover:text-app hover:bg-panel-2 transition-colors disabled:opacity-40", className)}>
+    <button {...rest} aria-label={label} title={label} className={cx("inline-flex size-9 items-center justify-center rounded-lg text-muted transition-colors hover:text-app hover:bg-panel-2 disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-brand-500", className)}>
       {children}
     </button>
   );
 }
 
-export const inputCls = "w-full h-10 rounded-xl px-3 text-sm bg-panel border border-app text-app placeholder:text-muted/70 focus:outline-none focus:border-brand-500 focus:ring-3 focus:ring-brand-500/20 transition";
+export const inputCls = "w-full h-9 rounded-lg px-3 text-sm bg-panel border border-app text-app placeholder:text-faint hover:border-strong focus:outline-none focus:border-brand-500 focus:ring-3 focus:ring-brand-500/15 transition";
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cx(inputCls, props.className)} />;
@@ -74,9 +74,9 @@ export function Switch({ checked, onChange, label, hint, disabled }: { checked: 
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={cx("relative mt-0.5 h-6 w-10 shrink-0 rounded-full transition-colors", checked ? "bg-brand-600" : "bg-zinc-300 dark:bg-zinc-700")}
+        className={cx("relative mt-0.5 h-6 w-10 shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-brand-500 outline-offset-2", checked ? "bg-brand-600 dark:bg-brand-500" : "bg-zinc-300 dark:bg-zinc-700")}
       >
-        <span className={cx("absolute top-0.5 size-5 rounded-full bg-white shadow transition-all", checked ? "left-[18px]" : "left-0.5")} />
+        <span className={cx("absolute top-0.5 size-5 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.25)] transition-all duration-200", checked ? "left-[18px]" : "left-0.5")} />
       </button>
       {(label || hint) && (
         <span className="min-w-0">
@@ -91,7 +91,7 @@ export function Switch({ checked, onChange, label, hint, disabled }: { checked: 
 export function Field({ label, hint, children, className }: { label: ReactNode; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <label className={cx("block", className)}>
-      <span className="block text-sm font-medium mb-1.5">{label}</span>
+      <span className="block text-[13px] font-medium mb-1.5">{label}</span>
       {children}
       {hint && <span className="block text-xs text-muted mt-1">{hint}</span>}
     </label>
@@ -100,7 +100,7 @@ export function Field({ label, hint, children, className }: { label: ReactNode; 
 
 export function Card({ className, children, ...rest }: { className?: string; children: ReactNode } & React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div {...rest} className={cx("panel rounded-2xl", className)}>
+    <div {...rest} className={cx("panel rounded-xl", className)}>
       {children}
     </div>
   );
@@ -118,16 +118,17 @@ export function Loading({ label }: { label?: string }) {
   );
 }
 
-export function Badge({ children, color = "zinc", className }: { children: ReactNode; color?: "zinc" | "blue" | "red" | "green" | "amber" | "brand"; className?: string }) {
+export function Badge({ children, color = "zinc", className }: { children: ReactNode; color?: "zinc" | "blue" | "red" | "green" | "amber" | "brand" | "violet"; className?: string }) {
   const c = {
     zinc: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300",
+    violet: "bg-violet-500/12 text-violet-700 dark:text-violet-300",
     blue: "bg-blue-500/12 text-blue-600 dark:text-blue-300",
     red: "bg-red-500/12 text-red-600 dark:text-red-300",
     green: "bg-green-500/12 text-green-700 dark:text-green-300",
     amber: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
     brand: "bg-brand-500/12 text-brand-600 dark:text-brand-300",
   }[color];
-  return <span className={cx("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", c, className)}>{children}</span>;
+  return <span className={cx("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold", c, className)}>{children}</span>;
 }
 
 export function Modal({ open, onClose, title, children, footer, wide, className }: { open: boolean; onClose: () => void; title?: ReactNode; children: ReactNode; footer?: ReactNode; wide?: boolean | "xl"; className?: string }) {
@@ -140,26 +141,26 @@ export function Modal({ open, onClose, title, children, footer, wide, className 
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] pointer-events-none" />
+      <div className="absolute inset-0 bg-black/40 pointer-events-none" />
       <div
         role="dialog"
         aria-modal="true"
         className={cx(
-          "relative w-full panel rounded-t-2xl sm:rounded-2xl shadow-2xl animate-pop flex flex-col max-h-[92vh]",
+          "relative w-full panel rounded-t-2xl sm:rounded-xl shadow-xl animate-pop flex flex-col max-h-[92vh]",
           wide === "xl" ? "sm:max-w-5xl" : wide ? "sm:max-w-2xl" : "sm:max-w-md",
           className,
         )}
       >
         {title && (
-          <div className="flex items-center justify-between gap-4 px-5 pt-4 pb-3 border-b border-app">
+          <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-3">
             <h2 className="text-base font-semibold">{title}</h2>
             <IconButton label="Close" onClick={onClose}>
               <X className="size-5" />
             </IconButton>
           </div>
         )}
-        <div className="overflow-y-auto px-5 py-4 scrollbar-thin">{children}</div>
-        {footer && <div className="flex flex-wrap justify-end gap-2 px-5 py-3 border-t border-app">{footer}</div>}
+        <div className={cx("overflow-y-auto px-6 pb-5 scrollbar-thin", !title && "pt-5")}>{children}</div>
+        {footer && <div className="flex flex-wrap justify-end gap-2 px-6 py-3 border-t border-app">{footer}</div>}
       </div>
     </div>,
     document.body,
@@ -194,7 +195,7 @@ export function Menu({ trigger, items, align = "right" }: { trigger: (open: () =
     <div ref={ref} className="relative inline-block">
       {trigger(() => setOpen((o) => !o))}
       {open && (
-        <div className={cx("absolute z-40 mt-1 min-w-52 panel rounded-xl shadow-xl py-1.5 animate-pop", align === "right" ? "right-0" : "left-0")}>
+        <div className={cx("absolute z-40 mt-1 min-w-52 panel rounded-lg shadow-lg p-1 animate-pop", align === "right" ? "right-0" : "left-0")}>
           {items.map((it, i) =>
             it.divider ? (
               <div key={i} className="my-1.5 h-px bg-[var(--border)]" />
@@ -206,11 +207,11 @@ export function Menu({ trigger, items, align = "right" }: { trigger: (open: () =
                   setOpen(false);
                   it.onClick?.();
                 }}
-                className={cx("flex w-full items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-panel-2 disabled:opacity-40", it.danger ? "text-red-600 dark:text-red-400" : "text-app")}
+                className={cx("flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-left hover:bg-panel-2 disabled:opacity-40", it.danger ? "text-red-600 dark:text-red-400" : "text-app")}
               >
-                <span className="size-4 shrink-0 text-muted [&>svg]:size-4">{it.icon}</span>
+                <span className={cx("size-4 shrink-0 [&>svg]:size-4", it.danger ? "" : "text-muted")}>{it.icon}</span>
                 <span className="flex-1">{it.label}</span>
-                {it.shortcut && <kbd className="text-[11px] text-muted font-mono">{it.shortcut}</kbd>}
+                {it.shortcut && <Kbd>{it.shortcut}</Kbd>}
               </button>
             ),
           )}
@@ -244,8 +245,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {createPortal(
         <div className="fixed z-[60] bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 w-[min(92vw,420px)] pointer-events-none">
           {toasts.map((t) => (
-            <div key={t.id} className="pointer-events-auto w-full panel rounded-xl shadow-lg px-4 py-3 flex items-center gap-3 text-sm animate-pop">
-              {t.kind === "success" ? <CheckCircle2 className="size-5 text-green-500 shrink-0" /> : t.kind === "error" ? <AlertTriangle className="size-5 text-red-500 shrink-0" /> : <Info className="size-5 text-brand-500 shrink-0" />}
+            <div key={t.id} className="pointer-events-auto w-full panel rounded-lg shadow-lg px-4 py-2.5 flex items-center gap-3 text-sm animate-pop">
+              {t.kind === "success" ? <CheckCircle2 className="size-4 text-green-600 shrink-0" /> : t.kind === "error" ? <AlertTriangle className="size-4 text-red-600 shrink-0" /> : <Info className="size-4 text-brand-600 dark:text-brand-400 shrink-0" />}
               <span className="flex-1">{t.text}</span>
               {t.action && (
                 <button className="font-semibold text-brand-600 dark:text-brand-300" onClick={t.action.onClick}>
@@ -319,21 +320,31 @@ export function DialogProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function EmptyState({ icon, title, children }: { icon?: ReactNode; title: ReactNode; children?: ReactNode }) {
+export function EmptyState({ title, children, action }: { icon?: ReactNode; title: ReactNode; children?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center text-center py-16 px-6">
-      {icon && <div className="mb-4 size-14 rounded-2xl bg-brand-500/10 text-brand-500 flex items-center justify-center [&>svg]:size-7">{icon}</div>}
-      <h3 className="text-lg font-semibold">{title}</h3>
-      {children && <div className="mt-2 text-sm text-muted max-w-sm">{children}</div>}
+    <div className="flex flex-col items-center justify-center text-center py-14 px-6">
+      <h3 className="text-base font-semibold">{title}</h3>
+      {children && <div className="mt-1.5 text-sm text-muted max-w-sm leading-relaxed">{children}</div>}
+      {action && <div className="mt-5 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>
+  );
+}
+
+/** Keyboard hint. Pass `hidden sm:inline-flex` etc. in className to control visibility. */
+export function Kbd({ children, className, onBrand }: { children: ReactNode; className?: string; onBrand?: boolean }) {
+  const display = /(^|\s)hidden(\s|$)/.test(className ?? "") ? "" : "inline-flex";
+  return (
+    <kbd className={cx(display, "h-5 min-w-5 items-center justify-center rounded-md px-1.5 font-sans text-[10px] font-semibold", onBrand ? "border border-white/25 bg-white/15 text-white/90" : "border border-app bg-panel-2 text-muted shadow-[0_1px_0_var(--border)]", className)}>
+      {children}
+    </kbd>
   );
 }
 
 export function Tabs<T extends string>({ value, onChange, tabs, className }: { value: T; onChange: (v: T) => void; tabs: { value: T; label: ReactNode }[]; className?: string }) {
   return (
-    <div className={cx("inline-flex rounded-xl bg-panel-2 p-1 gap-1", className)}>
+    <div className={cx("inline-flex rounded-lg bg-panel-2 p-0.5 gap-0.5", className)}>
       {tabs.map((t) => (
-        <button key={t.value} onClick={() => onChange(t.value)} className={cx("px-3 h-8 rounded-lg text-sm font-medium transition", value === t.value ? "bg-panel shadow-sm text-app" : "text-muted hover:text-app")}>
+        <button key={t.value} onClick={() => onChange(t.value)} className={cx("inline-flex items-center gap-1.5 px-3 h-7 rounded-md text-[13px] font-medium transition [&>svg]:size-3.5", value === t.value ? "bg-panel shadow-sm text-app" : "text-muted hover:text-app")}>
           {t.label}
         </button>
       ))}
@@ -343,9 +354,9 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
 
 export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-3 mb-6">
+    <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
       <div className="min-w-0">
-        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+        <h1 className="text-2xl font-semibold leading-tight">{title}</h1>
         {subtitle && <p className="text-sm text-muted mt-1">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

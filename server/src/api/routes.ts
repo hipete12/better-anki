@@ -9,7 +9,7 @@ import { buttonLabels, type Rating } from "../sched/scheduler";
 import { nextCard, answerCard, undo, undoStatus, unburyIfNewDay, unburyDeck, buriedCount, studiedToday, pushUndo, snapshotCards, countsFor } from "../sched/queue";
 import { deckTree, rebuildFiltered, createFiltered, customStudy, cardAction, deckOverview, type CardAction, type CustomStudy } from "../ops";
 import { searchRows, type SearchRow } from "../search";
-import { collectionStats } from "../stats";
+import { collectionStats, homeSummary } from "../stats";
 import { importApkg } from "../importer/apkg";
 import { previewCsv, importCsv, exportNotesText, type CsvImportOptions } from "../importer/text";
 import { exportApkg } from "../exporter/apkg";
@@ -509,6 +509,7 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
     return collectionStats(col, deck ? num(deck) : null, Math.min(3650, Math.max(7, num(ctx.query.get("days"), 30))));
   });
   r.get("/api/stats/today", () => studiedToday(col));
+  r.get("/api/home", () => homeSummary(col));
 
   // ---------------- import / export ----------------
   r.post("/api/import", async (ctx) => {

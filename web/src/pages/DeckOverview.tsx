@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Play, Settings2, Sparkles, Plus, Filter, RefreshCw, Eraser, Search, BarChart3, Download } from "lucide-react";
+import { ArrowLeft, Play } from "lucide-react";
 import { api, type Counts, type Today } from "../lib/api";
 import { useApi } from "../lib/hooks";
-import { Button, Card, Loading, Badge } from "../components/ui";
+import { Button, Loading, Badge } from "../components/ui";
+import { Stat, SegmentedBar, Legend } from "../components/visual";
 import CustomStudyDialog from "../components/CustomStudyDialog";
 import FilteredDeckDialog from "../components/FilteredDeckDialog";
 import ExportDialog from "../components/ExportDialog";
@@ -29,112 +30,95 @@ export default function DeckOverview() {
   const { deck, counts, totals } = data;
   const due = counts.new + counts.learn + counts.review;
   const parts = deck.name.split("::");
+  const maturity = [
+    { label: "New", value: totals.new, className: "bg-new" },
+    { label: "Learning", value: totals.learning, className: "bg-learn" },
+    { label: "Young", value: totals.young, className: "bg-green-400 dark:bg-green-600" },
+    { label: "Mature", value: totals.mature, className: "bg-green-700 dark:bg-green-400" },
+    { label: "Suspended", value: totals.suspended, className: "bg-amber-400" },
+    { label: "Buried", value: totals.buried, className: "bg-zinc-400" },
+  ];
+
   return (
     <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 sm:py-10">
-      <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-app mb-4">
-        <ArrowLeft className="size-4" /> Decks
+      <Link to="/" className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-app mb-5">
+        <ArrowLeft className="size-3.5" /> Decks
       </Link>
-      <div className="mb-6">
-        {parts.length > 1 && <div className="text-sm text-muted">{parts.slice(0, -1).join(" / ")}</div>}
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
+      <div className="mb-8">
+        {parts.length > 1 && <div className="text-[13px] text-muted mb-0.5">{parts.slice(0, -1).join(" / ")}</div>}
+        <h1 className="flex items-center gap-2.5 text-[28px] font-semibold leading-tight">
           {parts[parts.length - 1]}
           {deck.kind === 1 && <Badge color="brand">Filtered</Badge>}
         </h1>
-      </div>
-      <Card className="p-6 sm:p-8">
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div>
-            <div className="text-4xl font-bold text-new tabular-nums">{counts.new}</div>
-            <div className="text-sm text-muted mt-1">New</div>
-          </div>
-          <div>
-            <div className="text-4xl font-bold text-learn tabular-nums">{counts.learn}</div>
-            <div className="text-sm text-muted mt-1">Learning</div>
-          </div>
-          <div>
-            <div className="text-4xl font-bold text-due tabular-nums">{counts.review}</div>
-            <div className="text-sm text-muted mt-1">To review</div>
-          </div>
+        <div className="mt-1 text-[13px] text-muted">
+          {totals.total.toLocaleString()} cards{data.configName && ` · ${data.configName} preset`}
         </div>
-        <Button variant="primary" size="lg" className="w-full mt-8" onClick={() => navigate(`/study/${deck.id}`)}>
-          <Play className="size-5" /> {due ? "Study now" : "Open"}
+      </div>
+
+      <div className="flex items-end gap-10 mb-6">
+        <Stat size="lg" value={counts.new} label="New" valueClass={counts.new ? "text-new" : "text-faint"} />
+        <Stat size="lg" value={counts.learn} label="Learning" valueClass={counts.learn ? "text-learn" : "text-faint"} />
+        <Stat size="lg" value={counts.review} label="To review" valueClass={counts.review ? "text-due" : "text-faint"} />
+      </div>
+
+      {due ? (
+        <Button variant="primary" size="lg" className="w-full sm:w-auto sm:px-10" onClick={() => navigate(`/study/${deck.id}`)}>
+          <Play className="size-4" /> Study now
         </Button>
-        {deck.description && <div className="mt-6 text-sm text-muted prose-sm" dangerouslySetInnerHTML={{ __html: sanitize(deck.description) }} />}
-      </Card>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+      ) : (
+        <p className="text-sm text-muted">
+          Nothing due right now.
+          {deck.kind === 0 && (
+            <>
+              {" "}
+              <button className="text-brand-600 dark:text-brand-400 hover:underline" onClick={() => setCustom(true)}>
+                Start a custom study session
+              </button>
+            </>
+          )}
+        </p>
+      )}
+      {data.limits && <p className="mt-3 text-xs text-faint">{data.limits.newLeft} new and {data.limits.revLeft} reviews left in today's limits</p>}
+
+      <div className="mt-8 flex flex-wrap gap-2">
         {deck.kind === 0 ? (
           <>
-            <Button onClick={() => navigate(`/options/${deck.id}`)}>
-              <Settings2 className="size-4" /> Options
-            </Button>
-            <Button onClick={() => setCustom(true)}>
-              <Sparkles className="size-4" /> Custom study
-            </Button>
-            <Button onClick={() => navigate(`/add?deck=${deck.id}`)}>
-              <Plus className="size-4" /> Add cards
-            </Button>
-            <Button onClick={() => setExp(true)}>
-              <Download className="size-4" /> Export
-            </Button>
+            <Button size="sm" onClick={() => navigate(`/add?deck=${deck.id}`)}>Add cards</Button>
+            <Button size="sm" onClick={() => setCustom(true)}>Custom study</Button>
+            <Button size="sm" onClick={() => navigate(`/options/${deck.id}`)}>Options</Button>
           </>
         ) : (
           <>
-            <Button onClick={() => setEditFilter(true)}>
-              <Filter className="size-4" /> Edit filter
-            </Button>
-            <Button onClick={() => api.post(`/api/decks/${deck.id}/rebuild`).then(reload)}>
-              <RefreshCw className="size-4" /> Rebuild
-            </Button>
-            <Button onClick={() => api.post(`/api/decks/${deck.id}/empty`).then(reload)}>
-              <Eraser className="size-4" /> Empty
-            </Button>
+            <Button size="sm" onClick={() => setEditFilter(true)}>Edit filter</Button>
+            <Button size="sm" onClick={() => api.post(`/api/decks/${deck.id}/rebuild`).then(reload)}>Rebuild</Button>
+            <Button size="sm" onClick={() => api.post(`/api/decks/${deck.id}/empty`).then(reload)}>Empty</Button>
           </>
         )}
-        <Button onClick={() => navigate(`/browse?q=${encodeURIComponent(`deck:"${deck.name}"`)}`)}>
-          <Search className="size-4" /> Browse
-        </Button>
-        <Button onClick={() => navigate(`/stats?deck=${deck.id}`)}>
-          <BarChart3 className="size-4" /> Stats
-        </Button>
+        <Button size="sm" onClick={() => navigate(`/browse?q=${encodeURIComponent(`deck:"${deck.name}"`)}`)}>Browse</Button>
+        <Button size="sm" onClick={() => navigate(`/stats?deck=${deck.id}`)}>Stats</Button>
+        {deck.kind === 0 && <Button size="sm" onClick={() => setExp(true)}>Export</Button>}
         {data.buried > 0 && (
-          <Button onClick={() => api.post(`/api/decks/${deck.id}/unbury`).then(reload)}>Unbury {data.buried}</Button>
+          <Button size="sm" onClick={() => api.post(`/api/decks/${deck.id}/unbury`).then(reload)}>
+            Unbury {data.buried}
+          </Button>
         )}
       </div>
-      <Card className="mt-4 p-5">
-        <div className="text-sm font-semibold mb-3">Cards in this deck</div>
-        <div className="flex h-2.5 rounded-full overflow-hidden bg-panel-2">
-          {[
-            [totals.new, "bg-blue-500"],
-            [totals.learning, "bg-orange-500"],
-            [totals.young, "bg-green-400"],
-            [totals.mature, "bg-green-700"],
-            [totals.suspended, "bg-amber-300"],
-            [totals.buried, "bg-zinc-400"],
-          ].map(([n, c], i) => (n as number) > 0 && <div key={i} className={c as string} style={{ width: `${((n as number) / Math.max(1, totals.total)) * 100}%` }} />)}
+
+      <div className="mt-10 border-t border-app pt-6">
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-sm font-semibold">Cards</h2>
+          <span className="text-xs text-muted">{totals.total - totals.suspended - totals.buried > 0 ? `${Math.round((totals.mature / (totals.total - totals.suspended - totals.buried)) * 100)}% mature` : ""}</span>
         </div>
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-3 text-xs">
-          {[
-            ["New", totals.new, "bg-blue-500"],
-            ["Learning", totals.learning, "bg-orange-500"],
-            ["Young", totals.young, "bg-green-400"],
-            ["Mature", totals.mature, "bg-green-700"],
-            ["Suspended", totals.suspended, "bg-amber-300"],
-            ["Buried", totals.buried, "bg-zinc-400"],
-          ].map(([l, n, c]) => (
-            <div key={l as string} className="flex items-center gap-1.5">
-              <span className={`size-2 rounded-full ${c}`} />
-              <span className="text-muted">{l}</span>
-              <span className="font-semibold tabular-nums ml-auto">{n}</span>
-            </div>
-          ))}
+        <SegmentedBar segments={maturity} />
+        <Legend className="mt-3" items={maturity} />
+      </div>
+
+      {deck.description && (
+        <div className="mt-8 border-t border-app pt-6">
+          <h2 className="text-sm font-semibold mb-2">About this deck</h2>
+          <div className="text-sm leading-relaxed text-muted [&_a]:text-brand-600 [&_a]:underline" dangerouslySetInnerHTML={{ __html: sanitize(deck.description) }} />
         </div>
-        {data.configName && (
-          <div className="text-xs text-muted mt-4">
-            Preset: <span className="font-medium text-app">{data.configName}</span>
-            {data.limits && ` · ${data.limits.newLeft} new and ${data.limits.revLeft} reviews left in today's limits`}
-          </div>
-        )}
-      </Card>
+      )}
       {custom && <CustomStudyDialog deckId={deck.id} onClose={() => setCustom(false)} />}
       <FilteredDeckDialog open={editFilter} deckId={deck.id} onClose={() => setEditFilter(false)} onDone={reload} />
       <ExportDialog open={exp} deckId={deck.id} onClose={() => setExp(false)} />

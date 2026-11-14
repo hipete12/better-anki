@@ -61,14 +61,14 @@ export default function Connect({ onConnected }: { onConnected: (c: Credentials)
   };
 
   return (
-    <div className="min-h-full flex items-center justify-center p-4 bg-[radial-gradient(ellipse_at_top,_var(--color-brand-500)_-60%,_transparent_60%)]">
+    <div className="min-h-full flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
-          <img src="/icon.svg" alt="" className="size-16 mb-4 drop-shadow-lg" />
-          <h1 className="text-3xl font-bold tracking-tight">Better Anki</h1>
+          <img src="/icon.svg" alt="" className="size-12 mb-4" />
+          <h1 className="text-2xl font-semibold">Better Anki</h1>
           <p className="text-muted text-sm mt-1">Spaced repetition, on your own encrypted server.</p>
         </div>
-        <Card className="p-6 shadow-xl shadow-black/5">
+        <Card className="p-6">
           <form onSubmit={submit} className="space-y-4">
             <Field label="Server" hint={!server ? "Using this page's server" : undefined}>
               <div className="flex gap-2">

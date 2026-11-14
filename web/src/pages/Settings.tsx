@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { ShieldCheck, Monitor, Smartphone, Trash2, KeyRound, Database, Wrench, ImageOff, Archive, Moon, Sun, Laptop, LogOut, Lock } from "lucide-react";
+import { Moon, Sun, Laptop } from "lucide-react";
 import { api, fmt, transportSecurity, type CollectionConfig } from "../lib/api";
-import { useApi, useSession, applyTheme, type Theme, useLocalStorage } from "../lib/hooks";
+import { useApi, useSession, applyTheme, type Theme, useLocalStorage, applyFont, currentFont, FONT_CHOICES, type FontChoice } from "../lib/hooks";
 import { secureContextAvailable } from "../lib/secureStore";
 import { Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select, Switch, Tabs, useDialogs, useToast } from "../components/ui";
 
@@ -21,6 +21,7 @@ export default function Settings() {
   const sessions = useApi(() => api.get<SessionInfo[]>("/api/auth/sessions"), []);
   const backups = useApi(() => api.get<{ name: string; size: number }[]>("/api/backups"), []);
   const [theme, setTheme] = useLocalStorage<Theme>("ba.themePref", (localStorage.getItem("ba.theme") as Theme) || "system");
+  const [font, setFont] = useState<FontChoice>(currentFont);
   const [pwOpen, setPwOpen] = useState(false);
   const [report, setReport] = useState<{ title: string; lines: string[]; action?: { label: string; run: () => Promise<void> } } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -55,37 +56,31 @@ export default function Settings() {
       <PageHeader title="Settings" />
 
       <Card className="p-5">
-        <h2 className="font-semibold flex items-center gap-2 mb-3">
-          <ShieldCheck className="size-5 text-green-500" /> Security &amp; encryption
-        </h2>
+        <h2 className="font-semibold mb-3">Security &amp; encryption</h2>
         <ul className="text-sm space-y-2">
           <li className="flex gap-2">
-            <Lock className="size-4 mt-0.5 text-green-500 shrink-0" />
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-green-500" />
             <span>
               <b>At rest:</b> collection, media, filenames and backups are AES-256-GCM encrypted on the server. The key exists only in server memory, unwrapped by your password or an authorized device.
             </span>
           </li>
           <li className="flex gap-2">
-            <Lock className={`size-4 mt-0.5 shrink-0 ${transport.secure ? "text-green-500" : "text-amber-500"}`} />
+            <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${transport.secure ? "bg-green-500" : "bg-amber-500"}`} />
             <span>
               <b>In transit:</b> {transport.reason}
               {!transport.secure && ": use your Tailscale address or HTTPS (tailscale cert) to encrypt traffic."}
             </span>
           </li>
           <li className="flex gap-2">
-            <Lock className={`size-4 mt-0.5 shrink-0 ${secureContextAvailable() ? "text-green-500" : "text-amber-500"}`} />
+            <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${secureContextAvailable() ? "bg-green-500" : "bg-amber-500"}`} />
             <span>
               <b>This device:</b> {secureContextAvailable() ? "credentials encrypted with a non-extractable WebCrypto key." : "insecure browser context, so credentials are kept only for this tab."}
             </span>
           </li>
         </ul>
         <div className="flex flex-wrap gap-2 mt-4">
-          <Button onClick={() => setPwOpen(true)}>
-            <KeyRound className="size-4" /> Change password
-          </Button>
-          <Button onClick={session.logout}>
-            <LogOut className="size-4" /> Sign out
-          </Button>
+          <Button onClick={() => setPwOpen(true)}>Change password</Button>
+          <Button onClick={session.logout}>Sign out</Button>
         </div>
       </Card>
 
@@ -98,7 +93,6 @@ export default function Settings() {
           <div className="divide-y divide-[var(--border)]">
             {sessions.data.map((s) => (
               <div key={s.id} className="flex items-center gap-3 py-2.5">
-                {/android|ios/i.test(s.device) ? <Smartphone className="size-5 text-muted" /> : <Monitor className="size-5 text-muted" />}
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">
                     {s.device} {s.current && <Badge color="green">This device</Badge>}
@@ -118,7 +112,7 @@ export default function Settings() {
                       }
                     }}
                   >
-                    <Trash2 className="size-4" /> Revoke
+                    Revoke
                   </Button>
                 )}
               </div>
@@ -128,16 +122,30 @@ export default function Settings() {
       </Card>
 
       <Card className="p-5">
-        <h2 className="font-semibold mb-3">Appearance</h2>
-        <Tabs
-          value={theme}
-          onChange={(t) => (setTheme(t), applyTheme(t))}
-          tabs={[
-            { value: "light", label: <span className="flex items-center gap-1.5"><Sun className="size-4" /> Light</span> },
-            { value: "dark", label: <span className="flex items-center gap-1.5"><Moon className="size-4" /> Dark</span> },
-            { value: "system", label: <span className="flex items-center gap-1.5"><Laptop className="size-4" /> System</span> },
-          ]}
-        />
+        <h2 className="font-semibold mb-4">Appearance</h2>
+        <div className="space-y-4">
+          <div>
+            <div className="text-[13px] font-medium mb-1.5">Theme</div>
+            <Tabs
+              value={theme}
+              onChange={(t) => (setTheme(t), applyTheme(t))}
+              tabs={[
+                { value: "light", label: <span className="flex items-center gap-1.5"><Sun className="size-4" /> Light</span> },
+                { value: "dark", label: <span className="flex items-center gap-1.5"><Moon className="size-4" /> Dark</span> },
+                { value: "system", label: <span className="flex items-center gap-1.5"><Laptop className="size-4" /> System</span> },
+              ]}
+            />
+          </div>
+          <div>
+            <div className="text-[13px] font-medium mb-1.5">Font</div>
+            <Tabs
+              value={font}
+              onChange={(f) => (setFont(f), applyFont(f))}
+              tabs={FONT_CHOICES.map((c) => ({ value: c.value, label: <span style={{ fontFamily: c.stack }}>{c.label}</span> }))}
+            />
+            <p className="text-xs text-muted mt-1.5">Used across the app on this device. Cards keep the fonts set in their note type.</p>
+          </div>
+        </div>
       </Card>
 
       <Card className="p-5">
@@ -176,7 +184,7 @@ export default function Settings() {
         </p>
         <div className="grid sm:grid-cols-2 gap-2">
           <Button loading={busy === "db"} onClick={() => run("db", async () => setReport({ title: "Check database", lines: (await api.post<{ report: string[] }>("/api/check-database")).report }))}>
-            <Database className="size-4" /> Check database
+            Check database
           </Button>
           <Button
             loading={busy === "empty"}
@@ -192,7 +200,7 @@ export default function Settings() {
               })
             }
           >
-            <Wrench className="size-4" /> Empty cards
+            Empty cards
           </Button>
           <Button
             loading={busy === "media"}
@@ -207,10 +215,10 @@ export default function Settings() {
               })
             }
           >
-            <ImageOff className="size-4" /> Check media
+            Check media
           </Button>
           <Button loading={busy === "backup"} onClick={() => run("backup", async () => (await api.post("/api/backups"), backups.reload(), toast("Encrypted backup created", "success")))}>
-            <Archive className="size-4" /> Create backup now
+            Create backup now
           </Button>
         </div>
         {backups.data && backups.data.length > 0 && (

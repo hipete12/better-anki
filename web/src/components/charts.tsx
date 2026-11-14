@@ -1,7 +1,7 @@
 // Small dependency-free SVG charts following the data-viz rules: thin marks,
 // 4px rounded data-ends, 2px surface gaps, recessive grid, hover tooltips,
 // legends for >= 2 series, and a table view for every chart.
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Table2 } from "lucide-react";
 import { Card, cx } from "./ui";
 
@@ -156,6 +156,117 @@ export function ColumnChart({ data, series, xLabel, height = 200, formatX }: { d
               <span className="tabular-nums font-semibold">{totals[hover].toLocaleString()}</span>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Round up to a clean axis maximum (at least 2) whose halfway tick is a whole number. */
+function niceMaxEven(v: number): number {
+  if (v <= 2) return 2;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  const step = [1, 2, 4, 5, 6, 8, 10].find((s) => v <= s * p && Number.isInteger((s * p) / 2))!;
+  return step * p;
+}
+
+/** Width of an element in CSS pixels, so SVG text renders at its real size on any screen. */
+function useWidth<T extends HTMLElement>(fallback: number) {
+  const ref = useRef<T>(null);
+  const [width, setWidth] = useState(fallback);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setWidth(Math.round(e.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, width] as const;
+}
+
+/**
+ * Multi-series line chart on one y-axis: 2px lines, ringed end dots, names at the line ends
+ * when they don't collide, and a crosshair tooltip (pointer, touch, or arrow keys when focused).
+ */
+export function LineChart({ data, series, height = 140, xLabel, ariaLabel }: { data: Record<string, number>[]; series: Series[]; height?: number; xLabel: (i: number) => string; ariaLabel: string }) {
+  const [ref, W] = useWidth<HTMLDivElement>(640);
+  const [hover, setHover] = useState<number | null>(null);
+  const H = height;
+  const n = data.length;
+  const max = niceMaxEven(Math.max(0, ...data.flatMap((d) => series.map((s) => d[s.key] ?? 0))));
+  const ticks = [0, max / 2, max];
+  const yLabelW = Math.max(...ticks.map((t) => compact(t).length)) * 7 + 12;
+  const y0 = (v: number) => 8 + (H - 8 - 24) * (1 - v / max);
+  // names at the line ends, unless two would overlap (then the legend and tooltip carry identity)
+  const ends = series.map((s) => ({ s, y: y0(data[n - 1]?.[s.key] ?? 0) })).sort((a, b) => a.y - b.y);
+  const endLabels = W >= 360 && ends.every((e, i) => i === 0 || e.y - ends[i - 1].y >= 13);
+  const pad = { l: yLabelW, r: endLabels ? Math.max(...series.map((s) => s.label.length)) * 6.5 + 16 : 8 };
+  const plotW = Math.max(1, W - pad.l - pad.r);
+  const x = (i: number) => pad.l + (n > 1 ? (plotW * i) / (n - 1) : plotW);
+  const pick = (clientX: number, el: Element) => {
+    const r = el.getBoundingClientRect();
+    setHover(Math.max(0, Math.min(n - 1, Math.round(((clientX - r.left - pad.l) / plotW) * (n - 1)))));
+  };
+  const xTicks = n > 1 ? [0, Math.floor((n - 1) / 2), n - 1] : [0];
+  if (!n) return null;
+  return (
+    <div ref={ref} className="relative" onMouseLeave={() => setHover(null)}>
+      <svg
+        height={H}
+        viewBox={`0 0 ${W} ${H}`}
+        className="block w-full outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 rounded"
+        role="img"
+        aria-label={ariaLabel}
+        tabIndex={0}
+        onPointerMove={(e) => pick(e.clientX, e.currentTarget)}
+        onPointerDown={(e) => pick(e.clientX, e.currentTarget)}
+        onFocus={() => setHover(n - 1)}
+        onBlur={() => setHover(null)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            e.preventDefault();
+            setHover((h) => Math.max(0, Math.min(n - 1, (h ?? n - 1) + (e.key === "ArrowLeft" ? -1 : 1))));
+          }
+        }}
+      >
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={pad.l} x2={W - pad.r} y1={y0(t)} y2={y0(t)} stroke={t === 0 ? "var(--border)" : "var(--grid)"} strokeWidth={1} />
+            <text x={pad.l - 8} y={y0(t) + 3.5} textAnchor="end" fontSize={11} fill="var(--muted)" className="tnum">
+              {compact(t)}
+            </text>
+          </g>
+        ))}
+        {xTicks.map((i, k) => (
+          <text key={i} x={x(i)} y={H - 6} textAnchor={k === 0 ? "start" : k === xTicks.length - 1 ? "end" : "middle"} fontSize={11} fill="var(--muted)">
+            {xLabel(i)}
+          </text>
+        ))}
+        {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={8} y2={H - 24} stroke="var(--border-strong)" strokeWidth={1} />}
+        {series.map((s) => (
+          <path key={s.key} d={data.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y0(d[s.key] ?? 0).toFixed(1)}`).join("")} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        ))}
+        {series.map((s) => {
+          const i = hover ?? n - 1;
+          return <circle key={s.key} cx={x(i)} cy={y0(data[i][s.key] ?? 0)} r={4} fill={s.color} stroke="var(--bg)" strokeWidth={2} />;
+        })}
+        {endLabels &&
+          ends.map(({ s, y }) => (
+            <text key={s.key} x={x(n - 1) + 10} y={y + 4} fontSize={11} fill="var(--muted)">
+              {s.label}
+            </text>
+          ))}
+      </svg>
+      {hover !== null && (
+        <div className="pointer-events-none absolute z-10 panel rounded-lg shadow-lg px-3 py-2 text-xs min-w-32" style={{ left: Math.max(0, Math.min(W - 140, x(hover) + (x(hover) > W / 2 ? -152 : 12))), top: 0 }}>
+          <div className="font-semibold mb-1">{xLabel(hover)}</div>
+          {series.map((s) => (
+            <div key={s.key} className="flex items-center gap-2">
+              <span className="h-0.5 w-2.5 rounded-full" style={{ background: s.color }} />
+              <span className="text-muted flex-1">{s.label}</span>
+              <span className="tabular-nums font-semibold">{(data[hover][s.key] ?? 0).toLocaleString()}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
