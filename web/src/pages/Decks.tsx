@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronRight, MoreHorizontal, Plus, Upload, Filter, Settings2, Pencil, Trash2, Download, Sparkles, RefreshCw, Eraser, FolderPlus, Play, Table2, LineChart as LineChartIcon } from "lucide-react";
+import { ChevronRight, Plus, Upload, Filter, Settings2, Pencil, Trash2, Download, Sparkles, RefreshCw, Eraser, FolderPlus, Play, Table2, LineChart as LineChartIcon } from "lucide-react";
 import { api, type DeckNode, type HomeSummary } from "../lib/api";
 import { useApi } from "../lib/hooks";
 import { Button, cx, EmptyState, Loading, Menu, PageHeader, useDialogs, useToast, IconButton } from "../components/ui";
@@ -10,7 +10,7 @@ import ExportDialog from "../components/ExportDialog";
 import FilteredDeckDialog from "../components/FilteredDeckDialog";
 import CustomStudyDialog from "../components/CustomStudyDialog";
 
-const GRID = "grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_repeat(3,56px)_40px] items-center";
+const GRID = "grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_repeat(3,56px)] items-center";
 
 export default function Decks() {
   const { data, loading, reload } = useApi(() => api.get<{ tree: DeckNode[]; currentDeckId: number }>("/api/decks"), [], { live: true });
@@ -62,7 +62,7 @@ export default function Decks() {
 
       {tree.length > 0 && h && <CardTrend trend={h.trend} />}
 
-      <div className="panel rounded-xl overflow-hidden">
+      <div className="panel rounded-xl">
         {loading && !data ? (
           <Loading />
         ) : !tree.length ? (
@@ -86,7 +86,6 @@ export default function Decks() {
               <span className="text-right">New</span>
               <span className="text-right">Learn</span>
               <span className="text-right">Due</span>
-              <span />
             </div>
             {tree.map((d) => (
               <DeckRow key={d.id} deck={d} depth={0} reload={reload} onFiltered={(id) => setFiltered({ open: true, deckId: id })} onExport={(id) => setExportDeck({ open: true, deckId: id })} onCustom={setCustom} onCreateSub={createDeck} current={data?.currentDeckId ?? 0} />
@@ -224,7 +223,7 @@ function DeckRow({ deck, depth, reload, onFiltered, onExport, onCustom, onCreate
   const due = counts.new + counts.learn + counts.review;
   return (
     <>
-      <div className={cx(GRID, "group h-10 px-5 border-b border-app last:border-0 hover:bg-panel-2/50 transition-colors")}>
+      <div className={cx(GRID, "group h-10 px-5 border-b border-app last:border-0 last:rounded-b-xl hover:bg-panel-2/50 transition-colors")}>
         {/* the expand chevron sits in the gutter left of the name, so names line up with the "Deck" header */}
         <div className="flex items-center min-w-0" style={{ paddingLeft: depth * 20 }}>
           <button onClick={toggle} className={cx("-ml-5 size-5 flex shrink-0 items-center justify-center rounded text-faint hover:text-app", !hasChildren && "invisible")} aria-label={collapsed ? "Expand" : "Collapse"}>
@@ -236,23 +235,12 @@ function DeckRow({ deck, depth, reload, onFiltered, onExport, onCustom, onCreate
           {deck.kind === 1 && <span className="ml-2 text-[11px] text-brand-600 dark:text-brand-400">filtered</span>}
           {deck.id === current && <span className="ml-2 size-1.5 shrink-0 rounded-full bg-brand-500" title="Current deck" />}
           <span className="ml-2 hidden sm:inline text-xs text-faint tnum">{deck.total}</span>
-        </div>
-        <div className="flex sm:contents items-center gap-3 pr-1">
-          <span className="sm:hidden flex gap-2.5">
-            <Count n={counts.new} color="text-new" />
-            <Count n={counts.learn} color="text-learn" />
-            <Count n={counts.review} color="text-due" />
-          </span>
-          <span className="hidden sm:contents">
-            <Count n={counts.new} color="text-new" />
-            <Count n={counts.learn} color="text-learn" />
-            <Count n={counts.review} color="text-due" />
-          </span>
-          <div className="flex justify-end">
+          <span className="ml-1 shrink-0">
             <Menu
+              align="left"
               trigger={(t) => (
-                <IconButton label="Deck actions" onClick={t} className="size-8 sm:opacity-0 group-hover:opacity-100 focus:opacity-100">
-                  <MoreHorizontal className="size-4" />
+                <IconButton label={`Edit ${deck.shortName}`} onClick={t} className="size-7 text-faint hover:text-muted sm:opacity-0 group-hover:opacity-100 focus-visible:opacity-100">
+                  <Pencil className="size-3.5" />
                 </IconButton>
               )}
               items={[
@@ -274,8 +262,18 @@ function DeckRow({ deck, depth, reload, onFiltered, onExport, onCustom, onCreate
                 { label: "Delete", icon: <Trash2 />, danger: true, onClick: remove },
               ]}
             />
-          </div>
+          </span>
         </div>
+        <span className="sm:hidden flex gap-2.5 pr-1">
+          <Count n={counts.new} color="text-new" />
+          <Count n={counts.learn} color="text-learn" />
+          <Count n={counts.review} color="text-due" />
+        </span>
+        <span className="hidden sm:contents">
+          <Count n={counts.new} color="text-new" />
+          <Count n={counts.learn} color="text-learn" />
+          <Count n={counts.review} color="text-due" />
+        </span>
       </div>
       {!collapsed && deck.children.map((c) => <DeckRow key={c.id} deck={c} depth={depth + 1} reload={reload} onFiltered={onFiltered} onExport={onExport} onCustom={onCustom} onCreateSub={onCreateSub} current={current} />)}
     </>
