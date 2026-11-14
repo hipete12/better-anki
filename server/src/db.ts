@@ -1,0 +1,105 @@
+import { Database } from "bun:sqlite";
+
+const SCHEMA_VERSION = 1;
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS deck_configs (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, config TEXT NOT NULL, mtime INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS decks (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  kind INTEGER NOT NULL DEFAULT 0,
+  config_id INTEGER NOT NULL DEFAULT 1,
+  description TEXT NOT NULL DEFAULT '',
+  filtered TEXT,
+  collapsed INTEGER NOT NULL DEFAULT 0,
+  extra TEXT NOT NULL DEFAULT '{}',
+  mtime INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS notetypes (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind INTEGER NOT NULL DEFAULT 0,
+  css TEXT NOT NULL DEFAULT '',
+  sort_idx INTEGER NOT NULL DEFAULT 0,
+  fields TEXT NOT NULL,
+  templates TEXT NOT NULL,
+  latex_pre TEXT NOT NULL DEFAULT '',
+  latex_post TEXT NOT NULL DEFAULT '',
+  original_id INTEGER,
+  mtime INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS notes (
+  id INTEGER PRIMARY KEY,
+  guid TEXT NOT NULL UNIQUE,
+  ntid INTEGER NOT NULL,
+  mtime INTEGER NOT NULL,
+  tags TEXT NOT NULL DEFAULT '',
+  flds TEXT NOT NULL,
+  sfld TEXT NOT NULL DEFAULT '',
+  csum INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_notes_csum ON notes(csum);
+CREATE INDEX IF NOT EXISTS ix_notes_ntid ON notes(ntid);
+CREATE TABLE IF NOT EXISTS cards (
+  id INTEGER PRIMARY KEY,
+  nid INTEGER NOT NULL,
+  did INTEGER NOT NULL,
+  ord INTEGER NOT NULL,
+  mtime INTEGER NOT NULL,
+  type INTEGER NOT NULL DEFAULT 0,
+  queue INTEGER NOT NULL DEFAULT 0,
+  due INTEGER NOT NULL DEFAULT 0,
+  ivl INTEGER NOT NULL DEFAULT 0,
+  factor INTEGER NOT NULL DEFAULT 0,
+  reps INTEGER NOT NULL DEFAULT 0,
+  lapses INTEGER NOT NULL DEFAULT 0,
+  left INTEGER NOT NULL DEFAULT 0,
+  odue INTEGER NOT NULL DEFAULT 0,
+  odid INTEGER NOT NULL DEFAULT 0,
+  flags INTEGER NOT NULL DEFAULT 0,
+  stability REAL,
+  difficulty REAL,
+  last_review INTEGER,
+  custom_data TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_cards_sched ON cards(did, queue, due);
+CREATE INDEX IF NOT EXISTS ix_cards_nid ON cards(nid);
+CREATE TABLE IF NOT EXISTS revlog (
+  id INTEGER PRIMARY KEY,
+  cid INTEGER NOT NULL,
+  ease INTEGER NOT NULL,
+  ivl INTEGER NOT NULL,
+  last_ivl INTEGER NOT NULL,
+  factor INTEGER NOT NULL,
+  time INTEGER NOT NULL,
+  type INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_revlog_cid ON revlog(cid);
+CREATE TABLE IF NOT EXISTS media (
+  fname TEXT PRIMARY KEY, sha1 TEXT NOT NULL, size INTEGER NOT NULL, mtime INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS deck_today (
+  did INTEGER NOT NULL, day INTEGER NOT NULL,
+  new_done INTEGER NOT NULL DEFAULT 0, rev_done INTEGER NOT NULL DEFAULT 0,
+  extend_new INTEGER NOT NULL DEFAULT 0, extend_rev INTEGER NOT NULL DEFAULT 0,
+  ms INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (did, day)
+);
+CREATE TABLE IF NOT EXISTS tags (
+  tag TEXT PRIMARY KEY COLLATE NOCASE, collapsed INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS graves (
+  oid INTEGER NOT NULL, kind INTEGER NOT NULL, mtime INTEGER NOT NULL
+);
+`;
+
+export function initSchema(db: Database): Database {
+  db.exec("PRAGMA foreign_keys = OFF;");
+  db.exec(SCHEMA);
+  const v = db.query<{ value: string }, []>("SELECT value FROM config WHERE key='schema_version'").get();
+  if (!v) db.query("INSERT INTO config(key,value) VALUES ('schema_version', ?)").run(String(SCHEMA_VERSION));
+  return db;
+}
