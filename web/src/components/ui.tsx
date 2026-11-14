@@ -74,13 +74,14 @@ export function Switch({ checked, onChange, label, hint, disabled }: { checked: 
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={cx("relative mt-0.5 h-6 w-10 shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-brand-500 outline-offset-2", checked ? "bg-brand-600 dark:bg-brand-500" : "bg-zinc-300 dark:bg-zinc-700")}
+        className={cx("relative h-6 w-10 shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-brand-500 outline-offset-2", checked ? "bg-brand-600 dark:bg-brand-500" : "bg-zinc-300 dark:bg-zinc-700")}
       >
         <span className={cx("absolute top-0.5 size-5 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.25)] transition-all duration-200", checked ? "left-[18px]" : "left-0.5")} />
       </button>
       {(label || hint) && (
         <span className="min-w-0">
-          {label && <span className="block text-sm font-medium">{label}</span>}
+          {/* 24px line = switch height, so the label sits centered on the switch */}
+          {label && <span className="block text-sm leading-6 font-medium">{label}</span>}
           {hint && <span className="block text-xs text-muted mt-0.5">{hint}</span>}
         </span>
       )}
