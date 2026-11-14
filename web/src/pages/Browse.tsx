@@ -10,9 +10,10 @@ import CardInfoDialog from "../components/CardInfoDialog";
 import ExportDialog from "../components/ExportDialog";
 import FilteredDeckDialog from "../components/FilteredDeckDialog";
 
-const COLUMNS: { key: keyof BrowseRow; label: string; sort?: string; cls?: string; center?: boolean; notes?: boolean; cards?: boolean }[] = [
+const COLUMNS: { key: keyof BrowseRow; label: string; title?: string; sort?: string; cls?: string; align?: "center" | "right"; notes?: boolean; cards?: boolean }[] = [
+  { key: "order", label: "#", title: "Position in the order the deck came with", sort: "order", cls: "w-14 text-faint tnum", align: "right" },
   { key: "sortField", label: "Card", sort: "sortField", cls: "min-w-48" },
-  { key: "state", label: "State", sort: "state", cls: "w-16", center: true, cards: true },
+  { key: "state", label: "State", sort: "state", cls: "w-16", align: "center", cards: true },
   { key: "question", label: "Question", cls: "min-w-48", cards: true },
   { key: "answer", label: "Answer", cls: "min-w-40", cards: true },
   { key: "deck", label: "Deck", sort: "deck" },
@@ -30,7 +31,12 @@ const COLUMNS: { key: keyof BrowseRow; label: string; sort?: string; cls?: strin
   { key: "created", label: "Created", sort: "created" },
   { key: "modified", label: "Modified", sort: "modified" },
 ];
-const DEFAULT_COLS = ["sortField", "state", "deck", "due", "ivl", "ease", "tags"];
+const DEFAULT_COLS = ["order", "sortField", "state", "deck", "due", "ivl", "ease", "tags"];
+/** Columns added later: shown once (next to the card name) for people with saved column choices. */
+const ADDED_COLS = [
+  { key: "state", flag: "ba.browse.stateCol", after: true },
+  { key: "order", flag: "ba.browse.orderCol", after: false },
+];
 /** State dots, in the server's sort order. Review (not due yet) is a hollow ring, due is filled. */
 const STATES: Record<CardState, { label: string; cls: string }> = {
   new: { label: "New", cls: "bg-new" },
@@ -52,15 +58,18 @@ export default function Browse() {
   const [mode, setMode] = useLocalStorage<"cards" | "notes">("ba.browse.mode", "cards");
   const [sort, setSort] = useLocalStorage<{ col: string; desc: boolean }>("ba.browse.sort", { col: "created", desc: true });
   const [cols, setCols] = useLocalStorage<string[]>("ba.browse.cols", DEFAULT_COLS);
-  // show the State column once for people with saved column choices from before it existed
   useEffect(() => {
-    try {
-      if (localStorage.getItem("ba.browse.stateCol")) return;
-      localStorage.setItem("ba.browse.stateCol", "1");
-    } catch {
-      return;
+    let next = cols;
+    for (const a of ADDED_COLS) {
+      try {
+        if (localStorage.getItem(a.flag)) continue;
+        localStorage.setItem(a.flag, "1");
+      } catch {
+        continue;
+      }
+      if (!next.includes(a.key)) next = next.flatMap((c) => (c === "sortField" ? (a.after ? [c, a.key] : [a.key, c]) : [c]));
     }
-    if (!cols.includes("state")) setCols(cols.flatMap((c) => (c === "sortField" ? [c, "state"] : [c])));
+    if (next !== cols) setCols(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [rows, setRows] = useState<BrowseRow[]>([]);
@@ -277,8 +286,8 @@ export default function Browse() {
                   <tr>
                     <th className="w-1.5 border-b border-app" />
                     {visibleCols.map((c) => (
-                      <th key={c.key} className={cx("font-medium text-xs text-muted px-3 py-2 border-b border-app whitespace-nowrap select-none", c.center ? "text-center" : "text-left", c.sort && "cursor-pointer hover:text-app")} onClick={() => c.sort && setSort({ col: c.sort, desc: sort.col === c.sort ? !sort.desc : false })}>
-                        <span className={cx("inline-flex items-center gap-1", c.center && "justify-center")}>
+                      <th key={c.key} title={c.title} className={cx("font-medium text-xs text-muted px-3 py-2 border-b border-app whitespace-nowrap select-none", c.align === "center" ? "text-center" : c.align === "right" ? "text-right" : "text-left", c.sort && "cursor-pointer hover:text-app")} onClick={() => c.sort && setSort({ col: c.sort, desc: sort.col === c.sort ? !sort.desc : false })}>
+                        <span className="inline-flex items-center gap-1">
                           {c.label}
                           {sort.col === c.sort && (sort.desc ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />)}
                         </span>
@@ -301,7 +310,7 @@ export default function Browse() {
                           <div className="w-1.5 h-9" style={{ background: FLAG_COLORS[r.flags] || "transparent" }} />
                         </td>
                         {visibleCols.map((c) => (
-                          <td key={c.key} className={cx("px-3 py-2 border-b border-app max-w-80 truncate", c.center && "text-center", c.cls)}>
+                          <td key={c.key} className={cx("px-3 py-2 border-b border-app max-w-80 truncate", c.align === "center" ? "text-center" : c.align === "right" && "text-right", c.cls)}>
                             {c.key === "state" ? (
                               <span role="img" aria-label={STATES[r.state].label} title={STATES[r.state].label} className={cx("inline-block size-2.5 rounded-full align-middle", STATES[r.state].cls)} />
                             ) : c.key === "tags" ? (

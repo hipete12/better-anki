@@ -178,6 +178,8 @@ export interface StudyState {
 export interface BrowseRow {
   id: number;
   nid: number;
+  /** Position in the order the deck came with (per home deck; notes mode numbers notes). */
+  order: number;
   sortField: string;
   question: string;
   answer: string;

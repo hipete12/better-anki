@@ -160,6 +160,12 @@ describe("HTTP API", () => {
     expect(chunk).toContain("event: change");
     expect(chunk).toContain("decks");
     await reader.cancel();
+    // browse: "#" is the position in the deck's original order, and sorts by it
+    for (const f of ["second", "third"]) await fetch(`${base}/api/notes`, { method: "POST", headers: auth, body: JSON.stringify({ notetypeId: basic.id, deckId: 1, fields: [f, "b"] }) });
+    const br = await j(fetch(`${base}/api/browse?q=&sort=order&desc=1`, { headers: auth }));
+    expect(br.rows.map((r: { order: number }) => r.order)).toEqual([3, 2, 1]);
+    expect(br.rows[0].sortField).toBe("third");
+    expect(br.rows[0].state).toBe("new");
     srv.stop();
 
     // restart: locked until the device token is presented

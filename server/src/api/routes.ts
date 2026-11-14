@@ -723,8 +723,20 @@ function browse(col: Collection, ctx: Ctx) {
     const nt = col.notetype(r.ntid);
     return nt?.kind === 1 ? `Cloze ${r.ord + 1}` : (nt?.templates[r.ord]?.name ?? "");
   };
+  // "#": position in the order the home deck came with (by note creation, then card template), 1-based per deck
+  const order = new Map<number, number>();
+  for (const o of col.db
+    .query<{ id: number; card: number; note: number }, []>(
+      `SELECT id, ROW_NUMBER() OVER w card, DENSE_RANK() OVER (PARTITION BY CASE WHEN odid != 0 THEN odid ELSE did END ORDER BY nid) note
+       FROM cards WINDOW w AS (PARTITION BY CASE WHEN odid != 0 THEN odid ELSE did END ORDER BY nid, ord)`,
+    )
+    .iterate())
+    order.set(o.id, mode === "notes" ? o.note : o.card);
+  const homeDeck = (r: SearchRow) => (col.deck(r.odid || r.did)?.name ?? "").toLowerCase();
   const key = (r: SearchRow): number | string => {
     switch (sort) {
+      case "order": // grouped by home deck, so numbers from different decks don't interleave
+        return `${homeDeck(r)}\u0000${String(order.get(r.id) ?? 0).padStart(9, "0")}`;
       case "sortField":
         return r.sfld.toLowerCase();
       case "due":
@@ -780,6 +792,7 @@ function browse(col: Collection, ctx: Ctx) {
     return {
       id: r.id,
       nid: r.nid,
+      order: order.get(r.id) ?? 0,
       sortField: r.sfld.slice(0, 200),
       question,
       answer,
