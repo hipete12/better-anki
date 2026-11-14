@@ -136,6 +136,7 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
   };
 
   // ---------------- meta ----------------
+  r.get("/api/media-base", (ctx) => ({ base: mediaBaseFor(ctx, opts) }));
   r.get("/api/info", () => ({ version: VERSION, counts: col.counts(), today: col.today(), config: col.config }));
   r.get("/api/config", () => col.config);
   r.put("/api/config", async (ctx) => {

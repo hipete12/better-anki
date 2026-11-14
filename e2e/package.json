@@ -1,0 +1,8 @@
+{
+  "name": "better-anki-e2e",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "playwright-core": "1.58.0"
+  }
+}
