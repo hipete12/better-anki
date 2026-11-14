@@ -15,7 +15,7 @@ import { exportApkg } from "../src/exporter/apkg";
 import { importCsv, previewCsv } from "../src/importer/text";
 import { createFiltered, customStudy, cardAction, deckTree } from "../src/ops";
 import { checkDatabase, findEmptyCards } from "../src/maintenance";
-import { homeSummary, TREND_DAYS } from "../src/stats";
+import { homeSummary, cardStateTrend, TREND_DAYS } from "../src/stats";
 import { optimize } from "../src/sched/optimizer";
 import { splitFields } from "../src/util";
 import { randomKey } from "../src/crypto/aead";
@@ -169,6 +169,18 @@ describe("study queue", () => {
     expect(ago(3)).toMatchObject({ learning: 0, young: 1, mature: 2 });
     expect(ago(1)).toMatchObject({ learning: 1, young: 1, mature: 1 });
     expect(ago(0)).toMatchObject({ learning: 1, young: 0, mature: 1, day: 0 });
+
+    // per deck: move d to its own deck; cards in a filtered deck still count for their home deck
+    const other = col.ensureDeck("Other").id;
+    col.db.query("UPDATE cards SET did=? WHERE id=?").run(other, d);
+    const own = cardStateTrend(col, [other]);
+    expect(own.at(-1)).toMatchObject({ learning: 1, young: 0, mature: 0 });
+    expect(own.at(-9)).toMatchObject({ learning: 0, young: 0, mature: 1 });
+    expect(cardStateTrend(col, [1]).at(-1)).toMatchObject({ learning: 0, young: 0, mature: 1 });
+    const filtered = col.ensureDeck("Filtered", true).id;
+    col.db.query("UPDATE cards SET did=?, odid=? WHERE id=?").run(filtered, other, d);
+    expect(cardStateTrend(col, [other]).at(-1)).toMatchObject({ learning: 1 });
+    expect(cardStateTrend(col, [filtered]).at(-1)).toMatchObject({ learning: 1 });
   });
   test("subdeck limits roll up to parent", () => {
     const a = col.ensureDeck("P::A");

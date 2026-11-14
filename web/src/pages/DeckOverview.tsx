@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Play } from "lucide-react";
-import { api, type Counts, type Today } from "../lib/api";
+import { api, type Counts, type Today, type HomeSummary } from "../lib/api";
 import { useApi } from "../lib/hooks";
 import { Button, Loading, Badge } from "../components/ui";
 import { Stat, SegmentedBar, Legend } from "../components/visual";
 import CustomStudyDialog from "../components/CustomStudyDialog";
 import FilteredDeckDialog from "../components/FilteredDeckDialog";
 import ExportDialog from "../components/ExportDialog";
+import CardTrend from "../components/CardTrend";
 
 interface Overview {
   deck: { id: number; name: string; kind: 0 | 1; description: string; configId: number };
@@ -17,6 +18,7 @@ interface Overview {
   configName: string | null;
   buried: number;
   today: Today;
+  trend: HomeSummary["trend"];
 }
 
 export default function DeckOverview() {
@@ -40,7 +42,7 @@ export default function DeckOverview() {
   ];
 
   return (
-    <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 sm:py-10">
+    <div className="mx-auto max-w-3xl px-4 sm:px-6 py-6 sm:py-10">
       <Link to="/" className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-app mb-5">
         <ArrowLeft className="size-3.5" /> Decks
       </Link>
@@ -55,30 +57,35 @@ export default function DeckOverview() {
         </div>
       </div>
 
-      <div className="flex items-end gap-10 mb-6">
-        <Stat size="lg" value={counts.new} label="New" valueClass={counts.new ? "text-new" : "text-faint"} />
-        <Stat size="lg" value={counts.learn} label="Learning" valueClass={counts.learn ? "text-learn" : "text-faint"} />
-        <Stat size="lg" value={counts.review} label="To review" valueClass={counts.review ? "text-due" : "text-faint"} />
-      </div>
+      <div className="grid gap-x-12 gap-y-8 md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
+        <div>
+          <div className="flex items-end gap-10 mb-6">
+            <Stat size="lg" value={counts.new} label="New" valueClass={counts.new ? "text-new" : "text-faint"} />
+            <Stat size="lg" value={counts.learn} label="Learning" valueClass={counts.learn ? "text-learn" : "text-faint"} />
+            <Stat size="lg" value={counts.review} label="To review" valueClass={counts.review ? "text-due" : "text-faint"} />
+          </div>
 
-      {due ? (
-        <Button variant="primary" size="lg" className="w-full sm:w-auto sm:px-10" onClick={() => navigate(`/study/${deck.id}`)}>
-          <Play className="size-4" /> Study now
-        </Button>
-      ) : (
-        <p className="text-sm text-muted">
-          Nothing due right now.
-          {deck.kind === 0 && (
-            <>
-              {" "}
-              <button className="text-brand-600 dark:text-brand-400 hover:underline" onClick={() => setCustom(true)}>
-                Start a custom study session
-              </button>
-            </>
+          {due ? (
+            <Button variant="primary" size="lg" className="w-full sm:w-auto sm:px-10" onClick={() => navigate(`/study/${deck.id}`)}>
+              <Play className="size-4" /> Study now
+            </Button>
+          ) : (
+            <p className="text-sm text-muted">
+              Nothing due right now.
+              {deck.kind === 0 && (
+                <>
+                  {" "}
+                  <button className="text-brand-600 dark:text-brand-400 hover:underline" onClick={() => setCustom(true)}>
+                    Start a custom study session
+                  </button>
+                </>
+              )}
+            </p>
           )}
-        </p>
-      )}
-      {data.limits && <p className="mt-3 text-xs text-faint">{data.limits.newLeft} new and {data.limits.revLeft} reviews left in today's limits</p>}
+          {data.limits && <p className="mt-3 text-xs text-faint">{data.limits.newLeft} new and {data.limits.revLeft} reviews left in today's limits</p>}
+        </div>
+        <CardTrend trend={data.trend} />
+      </div>
 
       <div className="mt-8 flex flex-wrap gap-2">
         {deck.kind === 0 ? (

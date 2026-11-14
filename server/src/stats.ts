@@ -228,20 +228,25 @@ function stateAfter(prev: number, type: number, ivl: number): number {
   return prev; // filtered-deck preview: the card's scheduling is unchanged
 }
 
-/** Lightweight dashboard summary for the home screen (cheap enough to load on every visit). */
-export function homeSummary(col: Collection) {
+type RevRow = { id: number; cid: number; ease: number; type: number; ivl: number };
+
+/**
+ * Cards per state (learning, young, mature) at the end of each of the last TREND_DAYS days, rebuilt from the
+ * review log. `deckIds` limits it to those decks (cards in a filtered deck count for their home deck too);
+ * suspended cards are left out. With no deck filter, `visit` sees every review-log row, so callers can share the pass.
+ */
+export function cardStateTrend(col: Collection, deckIds: number[] | null, visit?: (r: RevRow, day: number) => void) {
   const roll = col.config.rolloverHour;
   const today = col.today();
-  const now = nowSecs();
   const db = col.db;
-  const dayOf = (ms: number) => dayNumber(Math.floor(ms / 1000), roll);
+  const inDecks = deckIds ? `AND (did IN (${deckIds.join(",")}) OR odid IN (${deckIds.join(",")}))` : "";
 
-  // Cards plotted in the trend (suspended cards are left out), with their state now.
+  // plotted cards, with their state now
   const current = new Map<number, number>();
-  for (const c of db.query<{ id: number; type: number; ivl: number }, []>("SELECT id, type, ivl FROM cards WHERE queue != -1").iterate()) {
+  for (const c of db.query<{ id: number; type: number; ivl: number }, []>(`SELECT id, type, ivl FROM cards WHERE queue != -1 ${inDecks}`).iterate()) {
     current.set(c.id, currentState(c.type, c.ivl));
   }
-  // Each day's net change in the number of cards per state; changes before the window go into `base`.
+  // each day's net change in the number of cards per state; changes before the window go into `base`
   const start = today - TREND_DAYS + 1;
   const base = [0, 0, 0, 0];
   const deltas = Array.from({ length: TREND_DAYS }, () => [0, 0, 0, 0]);
@@ -252,18 +257,10 @@ export function homeSummary(col: Collection) {
     slot[to]++;
   };
   const states = new Map<number, number>();
-
-  // One chronological pass over the review log: review days (streaks, retention) and card states.
-  const perDay = new Map<number, number>();
-  let passed = 0,
-    failed = 0;
-  const monthAgo = (now - 30 * 86400) * 1000;
-  for (const r of db.query<{ id: number; cid: number; ease: number; type: number; ivl: number }, []>("SELECT id, cid, ease, type, ivl FROM revlog ORDER BY id").iterate()) {
-    const d = dayOf(r.id);
-    if (r.ease > 0 && r.type !== 4) {
-      perDay.set(d, (perDay.get(d) ?? 0) + 1);
-      if (r.type === 1 && r.id >= monthAgo) r.ease > 1 ? passed++ : failed++;
-    }
+  const revWhere = deckIds && !visit ? `WHERE cid IN (SELECT id FROM cards WHERE queue != -1 ${inDecks})` : "";
+  for (const r of db.query<RevRow, []>(`SELECT id, cid, ease, type, ivl FROM revlog ${revWhere} ORDER BY id`).iterate()) {
+    const d = dayNumber(Math.floor(r.id / 1000), roll);
+    visit?.(r, d);
     if (current.has(r.cid)) {
       const prev = states.get(r.cid) ?? 0;
       const next = stateAfter(prev, r.type, r.ivl);
@@ -274,9 +271,29 @@ export function homeSummary(col: Collection) {
   // The log can disagree with the card table (forget writes no entry, imports may lack history): today's point uses the real state.
   for (const [cid, state] of current) move(today, states.get(cid) ?? 0, state);
   const counts = base.slice();
-  const trend = deltas.map((delta, i) => {
+  return deltas.map((delta, i) => {
     for (let s = 1; s < 4; s++) counts[s] += delta[s];
     return { day: i - TREND_DAYS + 1, date: dateOfDay(start + i), learning: counts[1], young: counts[2], mature: counts[3] };
+  });
+}
+
+/** Lightweight dashboard summary for the home screen (cheap enough to load on every visit). */
+export function homeSummary(col: Collection) {
+  const roll = col.config.rolloverHour;
+  const today = col.today();
+  const now = nowSecs();
+  const db = col.db;
+
+  // one chronological pass over the review log: card states, plus review days (streaks, retention)
+  const perDay = new Map<number, number>();
+  let passed = 0,
+    failed = 0;
+  const monthAgo = (now - 30 * 86400) * 1000;
+  const trend = cardStateTrend(col, null, (r, d) => {
+    if (r.ease > 0 && r.type !== 4) {
+      perDay.set(d, (perDay.get(d) ?? 0) + 1);
+      if (r.type === 1 && r.id >= monthAgo) r.ease > 1 ? passed++ : failed++;
+    }
   });
   let streak = 0;
   for (let d = today; ; d--) {

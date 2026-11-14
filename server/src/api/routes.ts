@@ -9,7 +9,7 @@ import { buttonLabels, type Rating } from "../sched/scheduler";
 import { nextCard, answerCard, undo, undoStatus, unburyIfNewDay, unburyDeck, buriedCount, studiedToday, pushUndo, snapshotCards, countsFor } from "../sched/queue";
 import { deckTree, rebuildFiltered, createFiltered, customStudy, cardAction, deckOverview, type CardAction, type CustomStudy } from "../ops";
 import { searchRows, type SearchRow } from "../search";
-import { collectionStats, homeSummary } from "../stats";
+import { collectionStats, homeSummary, cardStateTrend } from "../stats";
 import { importApkg } from "../importer/apkg";
 import { previewCsv, importCsv, exportNotesText, type CsvImportOptions } from "../importer/text";
 import { exportApkg } from "../exporter/apkg";
@@ -157,7 +157,10 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
     const { name } = await ctx.json<{ name: string }>();
     return col.ensureDeck(name);
   });
-  r.get("/api/decks/:id", (ctx) => ({ ...deckOverview(col, num(ctx.params.id)), buried: buriedCount(col, num(ctx.params.id)), today: studiedToday(col) }));
+  r.get("/api/decks/:id", (ctx) => {
+    const id = num(ctx.params.id);
+    return { ...deckOverview(col, id), buried: buriedCount(col, id), today: studiedToday(col), trend: cardStateTrend(col, col.deckAndChildren(id)) };
+  });
   r.patch("/api/decks/:id", async (ctx) => {
     const body = await ctx.json();
     const id = num(ctx.params.id);
