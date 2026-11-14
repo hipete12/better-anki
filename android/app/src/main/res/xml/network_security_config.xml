@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext is permitted at the platform level because Tailscale peers are
+  addressed by 100.x IPs (traffic is WireGuard-encrypted) and the emulator
+  reaches the host via 10.0.2.2. The app itself enforces the policy in
+  TransportPolicy: plain HTTP is only allowed to loopback, the emulator host,
+  Tailscale (100.64.0.0/10, *.ts.net) unless the user explicitly opts in.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

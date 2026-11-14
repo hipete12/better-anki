@@ -1,0 +1,4 @@
+-keepclassmembers class com.betteranki.app.ui.Bridge { @android.webkit.JavascriptInterface <methods>; }
+-keepattributes *Annotation*, InnerClasses
+-keep,includedescriptorclasses class com.betteranki.app.**$$serializer { *; }
+-keepclassmembers class com.betteranki.app.** { *** Companion; }
