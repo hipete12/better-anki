@@ -3,6 +3,7 @@ package com.betteranki.app
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -52,6 +53,7 @@ sealed class Screen {
     /** Choose or create the front/back layout for these cards. */
     data class DisplayOrder(val cardIds: List<Long>) : Screen()
     data class DeckOptions(val id: Long) : Screen()
+    data object Gestures : Screen()
 }
 
 class AppState : ViewModel() {
@@ -67,6 +69,8 @@ class AppState : ViewModel() {
     /** Whether the server was reachable on the last request. */
     var online by mutableStateOf(true)
         private set
+    /** Hardware keys (keyboard, gamepad, volume) go here first while a screen wants them (the study screen). */
+    var keyHandler: ((android.view.KeyEvent) -> Boolean)? = null
     /** A short message shown over any screen (e.g. "Synced 12 offline reviews"). */
     var notice by mutableStateOf<String?>(null)
     lateinit var offline: OfflineRepo
@@ -165,11 +169,17 @@ class AppState : ViewModel() {
 }
 
 class MainActivity : ComponentActivity() {
+    private val appState: AppState by viewModels()
+
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+        appState.keyHandler?.invoke(event) == true || super.dispatchKeyEvent(event)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val store = SecureStore(applicationContext)
         val appearance = Appearance(applicationContext)
+        val controls = com.betteranki.app.ui.StudyControls(applicationContext)
         setContent {
             val dark = when (appearance.theme) { ThemeChoice.System -> isSystemInDarkTheme(); ThemeChoice.Light -> false; ThemeChoice.Dark -> true }
             // status and navigation bar icons follow the app's theme, not just the system's
@@ -178,7 +188,7 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
                 onDispose {}
             }
-            CompositionLocalProvider(LocalAppearance provides appearance) {
+            CompositionLocalProvider(LocalAppearance provides appearance, com.betteranki.app.ui.LocalStudyControls provides controls) {
                 BetterAnkiTheme(dark, appearance.font.family) {
                     val app: AppState = viewModel()
                     LaunchedEffect(Unit) { app.init(store, applicationContext) }
@@ -208,6 +218,7 @@ fun Root(app: AppState) {
         is Screen.Conflicts -> SyncConflictsScreen(app)
         is Screen.DisplayOrder -> com.betteranki.app.ui.DisplayOrderScreen(app, top.cardIds)
         is Screen.DeckOptions -> com.betteranki.app.ui.DeckOptionsScreen(app, top.id)
+        is Screen.Gestures -> com.betteranki.app.ui.GesturesScreen(app)
     }
     NoticeToast(app)
 }

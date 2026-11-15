@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
@@ -534,6 +535,22 @@ fun SettingsTab(app: AppState) {
             }
         }
         item { AppearanceSettings() }
+        item {
+            val controls = LocalStudyControls.current
+            Panel(Modifier.fillMaxWidth().clickable { app.push(Screen.Gestures) }) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Gestures and keys", fontWeight = FontWeight.SemiBold)
+                        val bound = controls.bound
+                        Text(
+                            if (bound.isEmpty()) "No gestures set" else bound.take(2).joinToString(" · ") { "${it.label}: ${controls[it].short}" } + if (bound.size > 2) " · ${bound.size - 2} more" else "",
+                            fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
         item {
             Panel(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {

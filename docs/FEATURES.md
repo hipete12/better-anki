@@ -86,6 +86,7 @@ Check database, empty cards, check media (unused/missing), automatic encrypted b
 | Deck options (presets, limits, steps, order, burying, audio, timer; per-deck daily limits on Android) | ✅ | ✅ (FSRS parameters, optimizing and easy days: use web) |
 | Export, creating filtered decks, custom study | ✅ | ⛔ (use web); rebuild/empty filtered decks ✅ |
 | Study (all card types, audio, typed answers, flags, mark, bury, suspend, undo, edit) | ✅ | ✅ |
+| Study gestures (double tap, swipes, 9 tap zones, volume buttons) and keyboard/gamepad shortcuts | 🟡 keyboard shortcuts; double tap undoes | ✅ (Settings → Gestures and keys) |
 | Add / edit notes | ✅ rich | ✅ plain text |
 | Browse: search, sort, filters, state and deck-order columns, Display order, duplicate (choose where copies go), flag, suspend, bury, mark, tags, change deck, reset, delete, undo/redo | ✅ table | ✅ list (long-press to select; "Show" picks row details) |
 | Browse: notes mode, find and replace, reposition, set due date, card info, export selected | ✅ | ⛔ (use web) |

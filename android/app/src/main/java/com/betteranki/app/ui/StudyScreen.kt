@@ -37,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -228,6 +229,68 @@ fun StudyScreen(app: AppState, deckId: Long, startOffline: Boolean = false) {
         } catch (e: Exception) { toast = e.message }
     }
 
+    // gestures, volume buttons and keys (Settings → Gestures and keys)
+    val controls = LocalStudyControls.current
+    var typing by remember { mutableStateOf(false) } // the typed-answer box has focus: keys are for it
+    LaunchedEffect(card?.id, showAnswer) { typing = false }
+    fun run(a: StudyAction): Boolean {
+        val c = card
+        when {
+            a == StudyAction.NONE -> return false
+            a == StudyAction.UNDO -> if (state?.undo?.available == true) undo() else toast = "Nothing to undo"
+            a == StudyAction.EXIT -> app.pop()
+            c == null -> return false
+            a == StudyAction.SHOW_ANSWER -> reveal()
+            a.ease > 0 -> if (showAnswer) answer(a.ease) else reveal()
+            a.flag > 0 -> action("flag", mapOf("flag" to a.flag))
+            a == StudyAction.EDIT -> if (offline) toast = "That needs a connection" else app.push(Screen.EditNote(c.nid))
+            a == StudyAction.MARK -> action("mark")
+            a == StudyAction.BURY_CARD -> action("bury", msg = "Card buried")
+            a == StudyAction.BURY_NOTE -> action("buryNote", msg = "Note buried")
+            a == StudyAction.SUSPEND_CARD -> action("suspend", msg = "Card suspended")
+            a == StudyAction.SUSPEND_NOTE -> action("suspendNote", msg = "Note suspended")
+            a == StudyAction.REPLAY -> controller.replay()
+        }
+        return true
+    }
+    // a single tap waits briefly when double tap does something, so a double tap doesn't also run the tap's action
+    var pendingTap by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun gesture(g: StudyGesture) {
+        val a = controls[g]
+        if (g == StudyGesture.DOUBLE_TAP) { pendingTap?.cancel(); pendingTap = null; run(a); return }
+        if (a == StudyAction.NONE) return
+        if (g.name.startsWith("TAP_") && controls[StudyGesture.DOUBLE_TAP] != StudyAction.NONE) {
+            pendingTap?.cancel()
+            pendingTap = scope.launch { delay(330); pendingTap = null; run(a) }
+        } else run(a)
+    }
+    fun onCardMessage(type: String) {
+        when {
+            type == "showAnswer" -> reveal()
+            type == "doubleTap" -> gesture(StudyGesture.DOUBLE_TAP)
+            type.startsWith("tap:") -> type.removePrefix("tap:").toIntOrNull()?.let(StudyGesture::tap)?.let(::gesture)
+            type.startsWith("swipe:") -> StudyGesture.swipe(type.removePrefix("swipe:"))?.let(::gesture)
+            type == "inputFocus" -> typing = true
+            type == "inputBlur" -> typing = false
+        }
+    }
+    val onKey by rememberUpdatedState { e: android.view.KeyEvent ->
+        val volume = when (e.keyCode) { android.view.KeyEvent.KEYCODE_VOLUME_UP -> StudyGesture.VOLUME_UP; android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> StudyGesture.VOLUME_DOWN; else -> null }
+        when {
+            volume != null -> if (controls[volume] == StudyAction.NONE || (card == null && controls[volume] != StudyAction.UNDO && controls[volume] != StudyAction.EXIT)) false else {
+                // set to an action: the button no longer changes the volume here
+                if (e.action == android.view.KeyEvent.ACTION_DOWN && e.repeatCount == 0) run(controls[volume])
+                true
+            }
+            e.action != android.view.KeyEvent.ACTION_DOWN || typing || menu -> false
+            else -> keyAction(e, showAnswer)?.let { a -> if (e.repeatCount == 0) run(a); true } ?: false
+        }
+    }
+    DisposableEffect(Unit) {
+        app.keyHandler = { onKey(it) }
+        onDispose { app.keyHandler = null; pendingTap?.cancel() }
+    }
+
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // top bar
         Surface(color = MaterialTheme.colorScheme.surface) {
@@ -296,7 +359,7 @@ fun StudyScreen(app: AppState, deckId: Long, startOffline: Boolean = false) {
                     baseUrl = mediaBaseOf(html, app.api.server + "/"),
                     controller = controller,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    onMessage = { type -> if (type == "showAnswer") reveal() else if (type == "doubleTap" && state?.undo?.available == true) undo() },
+                    onMessage = { onCardMessage(it) },
                     onLink = { pendingLink = it },
                     offlineMedia = if (offline) app.offline::media else null,
                 )
