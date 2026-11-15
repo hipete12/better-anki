@@ -53,7 +53,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.isSystemInDarkTheme
 import com.betteranki.app.AppState
 import com.betteranki.app.Screen
 import com.betteranki.app.data.StudyState
@@ -79,7 +78,7 @@ private fun mediaBaseOf(html: String, fallback: String): String =
 
 @Composable
 fun StudyScreen(app: AppState, deckId: Long, startOffline: Boolean = false) {
-    val dark = isSystemInDarkTheme()
+    val dark = LocalDark.current
     // offline: study from the downloaded copy; actions are logged and synced later (docs/OFFLINE.md)
     var offline by remember { mutableStateOf(startOffline) }
     DisposableEffect(offline) {

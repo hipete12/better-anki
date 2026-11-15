@@ -2,7 +2,6 @@ package com.betteranki.app.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +32,13 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -91,7 +97,8 @@ private data class Tab(val label: String, val icon: androidx.compose.ui.graphics
 private val TABS = listOf(Tab("Decks", Icons.Default.Layers), Tab("Add", Icons.Default.Add), Tab("Browse", Icons.Default.Search), Tab("Stats", Icons.Default.BarChart), Tab("Settings", Icons.Default.Settings))
 
 @Composable
-fun HomeScreen(app: AppState, tab: Int) {
+fun HomeScreen(app: AppState, home: Screen.Home) {
+    val tab = home.tab
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
@@ -99,7 +106,7 @@ fun HomeScreen(app: AppState, tab: Int) {
                 TABS.forEachIndexed { i, t ->
                     NavigationBarItem(
                         selected = tab == i,
-                        onClick = { app.replaceTop(Screen.Home(i)) },
+                        onClick = { if (i != tab) app.replaceTop(Screen.Home(i)) },
                         icon = { Icon(t.icon, t.label) },
                         label = { Text(t.label, fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(selectedIconColor = Brand, selectedTextColor = Brand, indicatorColor = Brand.copy(alpha = 0.12f)),
@@ -111,8 +118,8 @@ fun HomeScreen(app: AppState, tab: Int) {
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
                 0 -> DecksTab(app)
-                1 -> AddNoteTab(app)
-                2 -> BrowseTab(app)
+                1 -> AddNoteTab(app, home.deckId)
+                2 -> BrowseTab(app, home.query)
                 3 -> StatsTab(app)
                 else -> SettingsTab(app)
             }
@@ -122,7 +129,7 @@ fun HomeScreen(app: AppState, tab: Int) {
 
 @Composable
 fun TabHeader(title: String, subtitle: String? = null, start: androidx.compose.ui.unit.Dp = 20.dp, actions: @Composable () -> Unit = {}) {
-    Row(Modifier.fillMaxWidth().padding(start = start, end = 12.dp, top = 52.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(start = start, end = 12.dp, top = 20.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.headlineMedium)
             subtitle?.let { Text(it, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -139,7 +146,8 @@ fun DecksTab(app: AppState) {
     var home by remember { mutableStateOf<com.betteranki.app.data.HomeSummary?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
-    var creating by remember { mutableStateOf(false) }
+    var naming by remember { mutableStateOf<DeckNaming?>(null) }
+    var deleting by remember { mutableStateOf<DeckNode?>(null) }
     val collapsed = remember { mutableStateOf(setOf<Long>()) }
     val scope = rememberCoroutineScope()
     suspend fun load() {
@@ -152,27 +160,17 @@ fun DecksTab(app: AppState) {
             error = e.message
         }
     }
+    fun act(f: suspend () -> Unit) = scope.launch { try { f(); load() } catch (e: Exception) { app.notice = e.message } }
     LaunchedEffect(app.changeTick) { load() }
-    val due = data?.tree?.sumOf { it.counts.new + it.counts.learn + it.counts.review } ?: 0
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = { scope.launch { refreshing = true; load(); refreshing = false } }) {
         LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
                 TabHeader("Decks") {
-                    IconButton(onClick = { creating = true }) { Icon(Icons.Default.Add, "Create deck") }
+                    IconButton(onClick = { naming = DeckNaming.Create() }) { Icon(Icons.Default.Add, "Create deck") }
                 }
             }
-            item {
-                data?.let { d ->
-                    val ac = appColors
-                    val t = home?.today ?: d.today
-                    Row(Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 22.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Stat("$due", "due today", Modifier.weight(1f), if (due > 0) ac.brand else ac.faint)
-                        Stat("${t.cards}", "studied", Modifier.weight(1f))
-                        Stat(if (t.cards > 0) "${(100 * (t.cards - t.again)) / t.cards}%" else "–", "correct", Modifier.weight(1f), if (t.cards == 0) ac.faint else if (t.again * 5 > t.cards) ac.hard else ac.due)
-                        Stat(home?.let { "${it.streak}d" } ?: "–", "streak", Modifier.weight(1f), if ((home?.streak ?: 0) > 0) ac.streak else ac.faint)
-                    }
-                }
-            }
+            // cards per state over time (new cards left out), like the web app
+            home?.let { h -> item { CardTrend(h.trend, Modifier.padding(start = 20.dp, end = 16.dp, bottom = 20.dp), chartHeight = 132.dp) } }
             item { OfflineBanner(app, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) }
             if (error != null && !app.online && app.offline.engine != null) {
                 item { OfflineDecks(app, Modifier.padding(horizontal = 16.dp)) }
@@ -184,13 +182,19 @@ fun DecksTab(app: AppState) {
                         Column {
                             val rows = visible(d.tree, collapsed.value)
                             if (rows.isEmpty()) Text("No decks yet. Import an .apkg from the web app or create a deck.", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            rows.forEachIndexed { i, (node, depth) ->
-                                if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                                DeckRow(node, depth, node.id in collapsed.value, onToggle = {
-                                    val c = collapsed.value
-                                    collapsed.value = if (node.id in c) c - node.id else c + node.id
-                                    scope.launch { try { app.api.request("PATCH", "/api/decks/${node.id}", buildJsonObject { put("collapsed", node.id in collapsed.value) }, JsonObject.serializer()) } catch (_: Exception) {} }
-                                }) { app.push(Screen.Deck(node.id)) }
+                            else DeckHeader()
+                            rows.forEach { (node, depth) ->
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                                DeckRow(
+                                    node, depth, node.id in collapsed.value,
+                                    onToggle = {
+                                        val c = collapsed.value
+                                        collapsed.value = if (node.id in c) c - node.id else c + node.id
+                                        scope.launch { try { app.api.request("PATCH", "/api/decks/${node.id}", buildJsonObject { put("collapsed", node.id in collapsed.value) }, JsonObject.serializer()) } catch (_: Exception) {} }
+                                    },
+                                    onClick = { app.push(Screen.Deck(node.id)) },
+                                    menu = deckMenu(app, node, onRename = { naming = DeckNaming.Rename(node) }, onSubdeck = { naming = DeckNaming.Create(node.name) }, onDelete = { deleting = node }),
+                                )
                             }
                         }
                     }
@@ -198,48 +202,140 @@ fun DecksTab(app: AppState) {
             }
         }
     }
-    if (creating) {
-        var name by remember { mutableStateOf("") }
+    naming?.let { n ->
+        DeckNameDialog(n, onDismiss = { naming = null }) { name ->
+            naming = null
+            act {
+                when (n) {
+                    is DeckNaming.Create -> app.api.post<JsonObject>("/api/decks", buildJsonObject { put("name", name) })
+                    is DeckNaming.Rename -> app.api.request("PATCH", "/api/decks/${n.deck.id}", buildJsonObject { put("name", name) }, JsonObject.serializer())
+                }
+            }
+        }
+    }
+    deleting?.let { node ->
+        val sub = flatten(node.children).size
         AlertDialog(
-            onDismissRequest = { creating = false },
-            title = { Text("New deck") },
-            text = { OutlinedTextField(name, { name = it }, label = { Text("Name (use :: for subdecks)") }, singleLine = true) },
-            confirmButton = {
-                TextButton(onClick = {
-                    creating = false
-                    scope.launch { try { app.api.post<JsonObject>("/api/decks", buildJsonObject { put("name", name) }); load() } catch (e: Exception) { error = e.message } }
-                }) { Text("Create") }
-            },
-            dismissButton = { TextButton(onClick = { creating = false }) { Text("Cancel") } },
+            onDismissRequest = { deleting = null },
+            title = { Text("Delete “${node.shortName}”?") },
+            text = { Text(if (node.total == 0 && sub == 0) "This deck is empty." else "This deletes ${node.total} card${if (node.total == 1) "" else "s"}" + (if (sub > 0) " and $sub subdeck${if (sub == 1) "" else "s"}" else "") + ". It can't be undone here, but the server keeps backups.") },
+            confirmButton = { TextButton(onClick = { deleting = null; act { app.api.delete<JsonObject>("/api/decks/${node.id}"); app.notice = "Deleted ${node.shortName}" } }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
 }
+
+sealed class DeckNaming {
+    /** `parent`: create a subdeck under it. */
+    data class Create(val parent: String? = null) : DeckNaming()
+    data class Rename(val deck: DeckNode) : DeckNaming()
+}
+
+@Composable
+fun DeckNameDialog(n: DeckNaming, onDismiss: () -> Unit, onDone: (String) -> Unit) {
+    val initial = when (n) { is DeckNaming.Create -> n.parent?.let { "$it::" } ?: ""; is DeckNaming.Rename -> n.deck.name }
+    var name by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(initial, androidx.compose.ui.text.TextRange(initial.length))) }
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    val ok = name.text.split("::").all { it.isNotBlank() } && name.text.trim() != (n as? DeckNaming.Rename)?.deck?.name
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(when (n) { is DeckNaming.Create -> if (n.parent != null) "New subdeck" else "New deck"; is DeckNaming.Rename -> "Rename deck" }) },
+        text = {
+            OutlinedTextField(
+                name, { name = it }, label = { Text("Name (use :: for subdecks)") }, singleLine = true,
+                modifier = Modifier.focusRequester(focus),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done, capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { if (ok) onDone(name.text.trim()) }),
+            )
+        },
+        confirmButton = { TextButton(enabled = ok, onClick = { onDone(name.text.trim()) }) { Text(if (n is DeckNaming.Rename) "Rename" else "Create") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private class MenuItem(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val enabled: Boolean = true, val danger: Boolean = false, val onClick: () -> Unit)
+
+/** The deck's actions (long-press a deck), like the web app's pencil menu. */
+private fun deckMenu(app: AppState, node: DeckNode, onRename: () -> Unit, onSubdeck: () -> Unit, onDelete: () -> Unit): List<MenuItem?> {
+    val due = node.counts.new + node.counts.learn + node.counts.review
+    return listOfNotNull(
+        MenuItem("Study now", Icons.Default.PlayArrow, enabled = due > 0) { app.push(Screen.Study(node.id)) },
+        if (node.kind == 0) MenuItem("Add cards", Icons.Default.Add) { app.push(Screen.Home(1, deckId = node.id)) } else null,
+        MenuItem("Browse cards", Icons.Default.Search) { app.push(Screen.Home(2, query = deckQuery(node.name))) },
+        if (node.kind == 0) MenuItem("Add subdeck", Icons.Default.CreateNewFolder, onClick = onSubdeck) else null,
+        MenuItem("Rename", Icons.Default.Edit, onClick = onRename),
+        null, // divider
+        MenuItem("Delete", Icons.Default.Delete, danger = true, onClick = onDelete),
+    )
+}
+
+/** `key:"value"` with search wildcards and quotes escaped, so names with `*`, `_` or quotes match exactly. */
+fun searchTerm(key: String, value: String) = "$key:\"" + value.replace(Regex("[\\\\\"*_]")) { "\\" + it.value } + "\""
+fun deckQuery(name: String) = searchTerm("deck", name)
 
 private fun flatten(nodes: List<DeckNode>): List<DeckNode> = nodes.flatMap { listOf(it) + flatten(it.children) }
 private fun visible(nodes: List<DeckNode>, collapsed: Set<Long>, depth: Int = 0): List<Pair<DeckNode, Int>> =
     nodes.flatMap { n -> listOf(n to depth) + if (n.id in collapsed) emptyList() else visible(n.children, collapsed, depth + 1) }
 
+private val CHEVRON = 30.dp
+private val COUNT_W = 46.dp
+
+/** Column names, lined up with the deck names and the counts under them (like the web app's table header). */
 @Composable
-private fun DeckRow(node: DeckNode, depth: Int, collapsed: Boolean, onToggle: () -> Unit, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(start = (8 + depth * 18).dp, end = 16.dp).height(56.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(36.dp).clickable(enabled = node.children.isNotEmpty(), onClick = onToggle), contentAlignment = Alignment.Center) {
-            if (node.children.isNotEmpty()) Icon(if (collapsed) Icons.Default.ChevronRight else Icons.Default.ExpandMore, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun DeckHeader() {
+    Row(Modifier.fillMaxWidth().padding(start = 6.dp + CHEVRON, end = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        val st = Modifier
+        Text("Deck", st.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        listOf("New", "Learn", "Due").forEach { Text(it, Modifier.width(COUNT_W), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.End) }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun DeckRow(node: DeckNode, depth: Int, collapsed: Boolean, onToggle: () -> Unit, onClick: () -> Unit, menu: List<MenuItem?>) {
+    var open by remember { mutableStateOf(false) }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Box {
+        Row(
+            Modifier.fillMaxWidth()
+                .combinedClickable(onClick = onClick, onLongClick = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); open = true }, onLongClickLabel = "Deck actions")
+                .padding(start = (6 + depth * 16).dp, end = 12.dp).height(48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(CHEVRON, 40.dp).clickable(enabled = node.children.isNotEmpty(), onClick = onToggle, onClickLabel = if (collapsed) "Expand" else "Collapse"), contentAlignment = Alignment.Center) {
+                if (node.children.isNotEmpty()) Icon(if (collapsed) Icons.Default.ChevronRight else Icons.Default.ExpandMore, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(node.shortName, Modifier.weight(1f, fill = false), fontWeight = if (depth == 0) FontWeight.Medium else FontWeight.Normal, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontStyle = if (node.kind == 1) FontStyle.Italic else FontStyle.Normal)
+                Text(if (node.kind == 1) "filtered" else "${node.total}", Modifier.padding(start = 6.dp), fontSize = 12.sp, color = if (node.kind == 1) appColors.brand else appColors.faint, maxLines = 1)
+            }
+            val ac = appColors
+            listOf(node.counts.new to ac.new, node.counts.learn to ac.learn, node.counts.review to ac.due).forEach { (n, c) ->
+                Text("$n", Modifier.width(COUNT_W), color = if (n > 0) c else ac.faint, fontWeight = if (n > 0) FontWeight.SemiBold else FontWeight.Normal, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+            }
         }
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            Text(node.shortName, Modifier.weight(1f, fill = false), fontWeight = if (depth == 0) FontWeight.Medium else FontWeight.Normal, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontStyle = if (node.kind == 1) FontStyle.Italic else FontStyle.Normal)
-            Text(if (node.kind == 1) "  filtered" else "  ${node.total}", fontSize = 12.sp, color = if (node.kind == 1) appColors.brand else appColors.faint, maxLines = 1)
+        DropdownMenu(open, { open = false }, offset = androidx.compose.ui.unit.DpOffset((40 + depth * 16).dp, (-8).dp)) {
+            menu.forEach { m ->
+                if (m == null) HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                else DropdownMenuItem(
+                    text = { Text(m.label, color = if (m.danger) MaterialTheme.colorScheme.error else Color.Unspecified) },
+                    leadingIcon = { Icon(m.icon, null, Modifier.size(20.dp), tint = if (m.danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
+                    enabled = m.enabled,
+                    onClick = { open = false; m.onClick() },
+                )
+            }
         }
-        CountsRow(node.counts.new, node.counts.learn, node.counts.review)
     }
 }
 
 // ---------------- Browse ----------------
 @Composable
-fun BrowseTab(app: AppState) {
-    var query by remember { mutableStateOf("deck:current") }
+fun BrowseTab(app: AppState, initialQuery: String? = null) {
+    var query by remember { mutableStateOf(initialQuery ?: "deck:current") }
     var result by remember { mutableStateOf<BrowseResult?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var submitted by remember { mutableStateOf("deck:current") }
+    var submitted by remember { mutableStateOf(initialQuery ?: "deck:current") }
     LaunchedEffect(submitted, app.changeTick) {
         try {
             result = app.api.get<BrowseResult>("/api/browse?q=${URLEncoder.encode(submitted, "UTF-8")}&limit=200&sort=created&desc=1")
@@ -300,7 +396,7 @@ fun StatsTab(app: AppState) {
     LaunchedEffect(app.changeTick) {
         try { stats = app.api.get<Stats>("/api/stats?days=30"); error = null } catch (e: Exception) { error = e.message }
     }
-    val dark = isSystemInDarkTheme()
+    val dark = LocalDark.current
     val series = if (dark) SeriesDark else SeriesLight
     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
         item { TabHeader("Statistics", "Whole collection · last 30 days") }
@@ -403,6 +499,7 @@ fun SettingsTab(app: AppState) {
     var confirmSignOut by remember { mutableStateOf(false) }
     var cfg by remember { mutableStateOf<AppConfig?>(null) }
     var sessions by remember { mutableStateOf<List<SessionInfo>>(emptyList()) }
+    var allDevices by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     suspend fun load() {
@@ -428,6 +525,7 @@ fun SettingsTab(app: AppState) {
                 }
             }
         }
+        item { AppearanceSettings() }
         item {
             Panel(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
@@ -440,12 +538,14 @@ fun SettingsTab(app: AppState) {
                 }
             }
         }
+        item { OfflineSettings(app) }
         item {
             Panel(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Signed-in devices", fontWeight = FontWeight.SemiBold)
                     Text("Revoking a device destroys its key.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    sessions.forEach { s ->
+                    val sorted = sessions.sortedWith(compareByDescending<SessionInfo> { it.current == true }.thenByDescending { it.lastSeen })
+                    (if (allDevices) sorted else sorted.take(3)).forEach { s ->
                         Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(s.device + if (s.current == true) "  (this device)" else "", fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -454,10 +554,12 @@ fun SettingsTab(app: AppState) {
                             if (s.current != true) TextButton(onClick = { scope.launch { try { app.api.delete<JsonObject>("/api/auth/sessions/${s.id}"); load() } catch (e: Exception) { error = e.message } } }) { Text("Revoke", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                     }
+                    if (sorted.size > 3) TextButton(onClick = { allDevices = !allDevices }, contentPadding = PaddingValues(0.dp), modifier = Modifier.padding(top = 4.dp)) {
+                        Text(if (allDevices) "Show fewer" else "Show all ${sorted.size} devices")
+                    }
                 }
             }
         }
-        item { OfflineSettings(app) }
         item {
             OutlinedButton(onClick = { if (app.offline.pending > 0) confirmSignOut = true else scope.launch { app.signOut() } }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(10.dp)) {
                 Text("Sign out")
@@ -471,6 +573,22 @@ fun SettingsTab(app: AppState) {
         confirmButton = { TextButton(onClick = { confirmSignOut = false; scope.launch { app.signOut() } }) { Text("Sign out", color = Color(0xFFDC2626)) } },
         dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") } },
     )
+}
+
+/** Theme and font for this device, like the web app's Appearance settings. */
+@Composable
+private fun AppearanceSettings() {
+    val a = LocalAppearance.current
+    Panel(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Appearance", fontWeight = FontWeight.SemiBold)
+            Text("Theme", fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+            Segmented(ThemeChoice.entries, a.theme, { Text(it.label, fontSize = 14.sp) }, a::updateTheme)
+            Text("Font", fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
+            Segmented(FontChoice.entries, a.font, { Text(it.label, fontSize = 14.sp, fontFamily = it.family) }, a::updateFont)
+            Text("Used across the app on this device. Cards keep the fonts set in their note type.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
+        }
+    }
 }
 
 @Composable

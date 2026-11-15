@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -110,6 +115,24 @@ fun Stat(value: String, label: String, modifier: Modifier = Modifier, color: Col
 @Composable
 fun Dot(color: Color, size: Int = 8) {
     Box(Modifier.size(size.dp).background(color, RoundedCornerShape(50)))
+}
+
+/** A row of mutually exclusive choices (like the web app's tabs control). */
+@Composable
+fun <T> Segmented(options: List<T>, selected: T, label: @Composable (T) -> Unit, onSelect: (T) -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)).padding(3.dp)) {
+        options.forEach { o ->
+            val on = o == selected
+            Surface(
+                onClick = { onSelect(o) },
+                modifier = Modifier.weight(1f).height(36.dp).semantics { this.selected = on; role = Role.Tab },
+                shape = RoundedCornerShape(8.dp),
+                color = if (on) MaterialTheme.colorScheme.surface else Color.Transparent,
+                shadowElevation = if (on) 1.dp else 0.dp,
+                contentColor = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            ) { Box(contentAlignment = Alignment.Center) { label(o) } }
+        }
+    }
 }
 
 fun fmtDuration(ms: Long): String {

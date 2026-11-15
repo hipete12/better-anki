@@ -81,7 +81,7 @@ private fun FieldInput(label: String, value: TextFieldValue, onChange: (TextFiel
 }
 
 @Composable
-fun AddNoteTab(app: AppState) {
+fun AddNoteTab(app: AppState, deckId: Long? = null) {
     var notetypes by remember { mutableStateOf<List<Notetype>>(emptyList()) }
     var decks by remember { mutableStateOf<List<DeckListItem>>(emptyList()) }
     var nt by remember { mutableStateOf<Notetype?>(null) }
@@ -97,7 +97,7 @@ fun AddNoteTab(app: AppState) {
             decks = app.api.get<List<DeckListItem>>("/api/decks/list").filter { it.kind == 0 }
             val cfg = app.api.get<AppConfig>("/api/config")
             nt = notetypes.firstOrNull { it.id == cfg.lastNotetypeId } ?: notetypes.firstOrNull { it.name == "Basic" } ?: notetypes.firstOrNull()
-            deck = decks.firstOrNull { it.id == cfg.lastDeckId } ?: decks.firstOrNull { it.id == cfg.currentDeckId } ?: decks.firstOrNull()
+            deck = decks.firstOrNull { it.id == deckId } ?: decks.firstOrNull { it.id == cfg.lastDeckId } ?: decks.firstOrNull { it.id == cfg.currentDeckId } ?: decks.firstOrNull()
         } catch (e: Exception) { msg = (e.message ?: "Error") to false }
     }
     LaunchedEffect(nt) {

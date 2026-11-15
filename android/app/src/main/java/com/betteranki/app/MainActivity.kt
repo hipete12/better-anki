@@ -6,6 +6,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -19,7 +23,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.betteranki.app.data.Api
 import com.betteranki.app.data.Credentials
 import com.betteranki.app.data.SecureStore
+import com.betteranki.app.ui.Appearance
 import com.betteranki.app.ui.BetterAnkiTheme
+import com.betteranki.app.ui.LocalAppearance
+import com.betteranki.app.ui.ThemeChoice
 import com.betteranki.app.ui.ConnectScreen
 import com.betteranki.app.ui.DeckOverviewScreen
 import com.betteranki.app.ui.EditNoteScreen
@@ -35,7 +42,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 
 sealed class Screen {
-    data class Home(val tab: Int = 0) : Screen()
+    /** `query`: a search to open Browse with; `deckId`: the deck to add cards to. */
+    data class Home(val tab: Int = 0, val query: String? = null, val deckId: Long? = null) : Screen()
     data class Deck(val id: Long) : Screen()
     /** `offline`: study from the downloaded copy (no server needed). */
     data class Study(val id: Long, val offline: Boolean = false) : Screen()
@@ -155,11 +163,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val store = SecureStore(applicationContext)
+        val appearance = Appearance(applicationContext)
         setContent {
-            BetterAnkiTheme {
-                val app: AppState = viewModel()
-                LaunchedEffect(Unit) { app.init(store, applicationContext) }
-                if (app.loaded) Root(app)
+            val dark = when (appearance.theme) { ThemeChoice.System -> isSystemInDarkTheme(); ThemeChoice.Light -> false; ThemeChoice.Dark -> true }
+            // status and navigation bar icons follow the app's theme, not just the system's
+            DisposableEffect(dark) {
+                val bars = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT) else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+                onDispose {}
+            }
+            CompositionLocalProvider(LocalAppearance provides appearance) {
+                BetterAnkiTheme(dark, appearance.font.family) {
+                    val app: AppState = viewModel()
+                    LaunchedEffect(Unit) { app.init(store, applicationContext) }
+                    if (app.loaded) Root(app)
+                }
             }
         }
     }
@@ -174,7 +192,7 @@ fun Root(app: AppState) {
     val top = app.stack.last()
     BackHandler(enabled = app.stack.size > 1) { app.pop() }
     when (top) {
-        is Screen.Home -> HomeScreen(app, top.tab)
+        is Screen.Home -> HomeScreen(app, top)
         is Screen.Deck -> DeckOverviewScreen(app, top.id)
         is Screen.Study -> StudyScreen(app, top.id, top.offline)
         is Screen.EditNote -> EditNoteScreen(app, top.nid)
