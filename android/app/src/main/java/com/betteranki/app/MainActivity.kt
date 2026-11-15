@@ -51,6 +51,7 @@ sealed class Screen {
     data class EditNote(val nid: Long) : Screen()
     /** Choose or create the front/back layout for these cards. */
     data class DisplayOrder(val cardIds: List<Long>) : Screen()
+    data class DeckOptions(val id: Long) : Screen()
 }
 
 class AppState : ViewModel() {
@@ -206,6 +207,7 @@ fun Root(app: AppState) {
         is Screen.EditNote -> EditNoteScreen(app, top.nid)
         is Screen.Conflicts -> SyncConflictsScreen(app)
         is Screen.DisplayOrder -> com.betteranki.app.ui.DisplayOrderScreen(app, top.cardIds)
+        is Screen.DeckOptions -> com.betteranki.app.ui.DeckOptionsScreen(app, top.id)
     }
     NoticeToast(app)
 }

@@ -284,6 +284,7 @@ private fun deckMenu(app: AppState, node: DeckNode, onRename: () -> Unit, onSubd
         MenuItem("Browse cards", Icons.Default.Search) { app.push(Screen.Home(2, query = deckQuery(node.name))) },
         if (node.kind == 0) MenuItem("Add subdeck", Icons.Default.CreateNewFolder, onClick = onSubdeck) else null,
         MenuItem("Rename", Icons.Default.Edit, onClick = onRename),
+        if (node.kind == 0) MenuItem("Options", Icons.Default.Settings) { app.push(Screen.DeckOptions(node.id)) } else null,
         null, // divider
         MenuItem("Delete", Icons.Default.Delete, danger = true, onClick = onDelete),
     )

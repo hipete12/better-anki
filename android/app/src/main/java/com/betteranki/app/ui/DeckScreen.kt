@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -104,6 +105,7 @@ fun DeckOverviewScreen(app: AppState, id: Long) {
                     )
                     if (d.deck.kind == 0) item("Add subdeck", Icons.Default.CreateNewFolder) { naming = DeckNaming.Create(d.deck.name) }
                     item("Rename", Icons.Default.Edit) { naming = DeckNaming.Rename(d.deck.id, d.deck.name) }
+                    if (d.deck.kind == 0) item("Options", Icons.Default.Settings) { app.push(Screen.DeckOptions(d.deck.id)) }
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
                     item("Delete", Icons.Default.Delete, danger = true) { deleting = true }
                 }

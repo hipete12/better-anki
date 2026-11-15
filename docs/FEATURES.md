@@ -25,7 +25,8 @@ Legend: ✅ implemented · 🟡 partial · ⛔ not implemented (yet)
 | Filtered decks (2 search terms, 11 orders, reschedule or preview with custom delays), rebuild/empty | ✅ | |
 | Custom study (extend limits, forgotten, review ahead, preview new, by state/tag) | ✅ | |
 | Set due date (ranges, `!`), forget/reset, reposition new cards | ✅ | |
-| Undo (review, edits, bulk actions, tags) | ✅ | 50-step server-side stack |
+| Undo while studying (reviews, edits, card actions) | ✅ | 50-step server-side stack; also double-tap the card on touch screens |
+| Browse undo/redo (state, flags, deck, tags, edits, display order, duplicates, deletes) | ✅ | Separate 30-step history of Browse changes; reordering isn't undone |
 | Compute optimal retention / workload simulator | 🟡 | Simple API estimate, no UI yet |
 
 ## Notes, templates, rendering
@@ -82,14 +83,15 @@ Check database, empty cards, check media (unused/missing), automatic encrypted b
 | Sign-in/setup, transport security indicator, device list & revoke | ✅ | ✅ |
 | Deck list (tree, counts, card-state trend), create, rename, add subdeck, delete | ✅ | ✅ (long-press a deck) |
 | Deck page (counts, limits left today, trend, cards by maturity, description) | ✅ | ✅ |
-| Deck options, export, creating filtered decks, custom study | ✅ | ⛔ (use web); rebuild/empty filtered decks ✅ |
+| Deck options (presets, limits, steps, order, burying, audio, timer; per-deck daily limits on Android) | ✅ | ✅ (FSRS parameters, optimizing and easy days: use web) |
+| Export, creating filtered decks, custom study | ✅ | ⛔ (use web); rebuild/empty filtered decks ✅ |
 | Study (all card types, audio, typed answers, flags, mark, bury, suspend, undo, edit) | ✅ | ✅ |
 | Add / edit notes | ✅ rich | ✅ plain text |
-| Browse: search, sort, filters, state and deck-order columns, Display order, duplicate, flag, suspend, bury, mark, tags, change deck, reset, delete | ✅ table | ✅ list (long-press to select; "Show" picks row details) |
+| Browse: search, sort, filters, state and deck-order columns, Display order, duplicate (choose where copies go), flag, suspend, bury, mark, tags, change deck, reset, delete, undo/redo | ✅ table | ✅ list (long-press to select; "Show" picks row details) |
 | Browse: notes mode, find and replace, reposition, set due date, card info, export selected | ✅ | ⛔ (use web) |
 | Appearance: theme and font | ✅ | ✅ |
 | Stats | ✅ full | 🟡 summary, heatmap, forecast, retention |
-| Note types, deck options, import, maintenance | ✅ | ⛔ (use web) |
+| Note types, import, maintenance | ✅ | ⛔ (use web) |
 | Offline study (download decks, study, sync with per-card conflict resolution) | ⛔ (planned) | ✅ ([OFFLINE.md](OFFLINE.md)) |
 
 ## Not planned / known gaps
