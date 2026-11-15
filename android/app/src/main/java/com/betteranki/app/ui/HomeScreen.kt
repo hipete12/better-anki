@@ -193,7 +193,7 @@ fun DecksTab(app: AppState) {
                                         scope.launch { try { app.api.request("PATCH", "/api/decks/${node.id}", buildJsonObject { put("collapsed", node.id in collapsed.value) }, JsonObject.serializer()) } catch (_: Exception) {} }
                                     },
                                     onClick = { app.push(Screen.Deck(node.id)) },
-                                    menu = deckMenu(app, node, onRename = { naming = DeckNaming.Rename(node) }, onSubdeck = { naming = DeckNaming.Create(node.name) }, onDelete = { deleting = node }),
+                                    menu = deckMenu(app, node, onRename = { naming = DeckNaming.Rename(node.id, node.name) }, onSubdeck = { naming = DeckNaming.Create(node.name) }, onDelete = { deleting = node }),
                                 )
                             }
                         }
@@ -208,7 +208,7 @@ fun DecksTab(app: AppState) {
             act {
                 when (n) {
                     is DeckNaming.Create -> app.api.post<JsonObject>("/api/decks", buildJsonObject { put("name", name) })
-                    is DeckNaming.Rename -> app.api.request("PATCH", "/api/decks/${n.deck.id}", buildJsonObject { put("name", name) }, JsonObject.serializer())
+                    is DeckNaming.Rename -> app.api.request("PATCH", "/api/decks/${n.id}", buildJsonObject { put("name", name) }, JsonObject.serializer())
                 }
             }
         }
@@ -228,16 +228,16 @@ fun DecksTab(app: AppState) {
 sealed class DeckNaming {
     /** `parent`: create a subdeck under it. */
     data class Create(val parent: String? = null) : DeckNaming()
-    data class Rename(val deck: DeckNode) : DeckNaming()
+    data class Rename(val id: Long, val name: String) : DeckNaming()
 }
 
 @Composable
 fun DeckNameDialog(n: DeckNaming, onDismiss: () -> Unit, onDone: (String) -> Unit) {
-    val initial = when (n) { is DeckNaming.Create -> n.parent?.let { "$it::" } ?: ""; is DeckNaming.Rename -> n.deck.name }
+    val initial = when (n) { is DeckNaming.Create -> n.parent?.let { "$it::" } ?: ""; is DeckNaming.Rename -> n.name }
     var name by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(initial, androidx.compose.ui.text.TextRange(initial.length))) }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
-    val ok = name.text.split("::").all { it.isNotBlank() } && name.text.trim() != (n as? DeckNaming.Rename)?.deck?.name
+    val ok = name.text.split("::").all { it.isNotBlank() } && name.text.trim() != (n as? DeckNaming.Rename)?.name
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(when (n) { is DeckNaming.Create -> if (n.parent != null) "New subdeck" else "New deck"; is DeckNaming.Rename -> "Rename deck" }) },
