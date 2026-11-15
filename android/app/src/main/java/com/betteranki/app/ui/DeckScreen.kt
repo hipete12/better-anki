@@ -133,7 +133,7 @@ fun DeckOverviewScreen(app: AppState, id: Long) {
                     fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text("Deck options, custom study and export are in the web app.", fontSize = 12.sp, color = appColors.faint, modifier = Modifier.padding(top = 28.dp))
+            Text("Custom study and export are in the web app. Deck options are in the ⋮ menu.", fontSize = 12.sp, color = appColors.faint, modifier = Modifier.padding(top = 28.dp))
         }
     }
     naming?.let { n ->

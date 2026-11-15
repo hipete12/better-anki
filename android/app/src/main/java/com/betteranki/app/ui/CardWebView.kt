@@ -90,7 +90,7 @@ fun CardWebView(html: String, baseUrl: String, controller: CardController, modif
             wv.setBackgroundColor(bg)
             if (wv.tag != html) {
                 wv.tag = html
-                wv.loadDataWithBaseURL(baseUrl, html, "text/html", "utf-8", null)
+                wv.loadDataWithBaseURL(baseUrl, withGestures(html), "text/html", "utf-8", null)
             }
         },
         onRelease = { wv ->

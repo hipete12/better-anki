@@ -150,34 +150,38 @@ document.addEventListener('keydown',function(e){
   post({type:'key',key:e.key,code:e.code,ctrl:e.ctrlKey,meta:e.metaKey,shift:e.shiftKey,alt:e.altKey});
   if(e.key===' '||e.key==='Enter') e.preventDefault();
 });
-// touch gestures on the card, for the apps to act on (Android binds them in Settings; the web app undoes on a double tap):
-// 'tap:<zone 0-8, rows of three>', 'doubleTap', 'swipe:<left|right|up|down>'. Not on links, sounds or inputs, or while
-// selecting text. Vertical swipes only count when the card didn't scroll.
+// touch gestures on the card, for the apps to act on: 'tap:<zone 0-8, rows of three>', 'doubleTap',
+// 'swipe:<left|right|up|down>'. Not on links, sounds or inputs, or while selecting text. Vertical swipes only
+// count when the card didn't scroll. The Android app adds this same script itself (for older servers and
+// downloaded decks) and stands down when the page already has it.
+window.__baGestures=1;
 var touch=null, lastTap=null;
 function control(el){ return el&&el.closest&&el.closest('a,button,input,textarea,select,summary,label,[contenteditable],.soundLink,.hint'); }
+function swipe(s,x,y){
+  var dx=x-s.x, dy=y-s.y, ax=Math.abs(dx), ay=Math.abs(dy);
+  if(Date.now()-s.at>1000||(s.el&&s.el.closest&&s.el.closest('input,textarea,[contenteditable]'))) return;
+  if(ax>50&&ax>1.5*ay) post({type:'swipe:'+(dx<0?'left':'right')});
+  else if(ay>50&&ay>1.5*ax&&window.scrollY===s.sy) post({type:'swipe:'+(dy<0?'up':'down')});
+}
 document.addEventListener('touchstart',function(e){
   if(e.touches.length>1){ touch=null; lastTap=null; return; }
-  var t=e.touches[0]; touch={x:t.clientX,y:t.clientY,at:Date.now(),sy:window.scrollY,el:e.target,moved:false};
+  var t=e.touches[0]; touch={x:t.clientX,y:t.clientY,lx:t.clientX,ly:t.clientY,at:Date.now(),sy:window.scrollY,el:e.target,moved:false};
 },{passive:true});
 document.addEventListener('touchmove',function(e){
-  var t=e.touches[0]; if(touch&&t&&(Math.abs(t.clientX-touch.x)>10||Math.abs(t.clientY-touch.y)>10)) touch.moved=true;
+  var t=e.touches[0]; if(!touch||!t) return;
+  touch.lx=t.clientX; touch.ly=t.clientY;
+  if(Math.abs(t.clientX-touch.x)>10||Math.abs(t.clientY-touch.y)>10) touch.moved=true;
 },{passive:true});
+// the browser may cancel a touch it takes over (to scroll or overscroll): a swipe still counts
+document.addEventListener('touchcancel',function(){ var s=touch; touch=null; lastTap=null; if(s&&s.moved) swipe(s,s.lx,s.ly); },{passive:true});
 document.addEventListener('touchend',function(e){
   var s=touch; touch=null; var t=e.changedTouches&&e.changedTouches[0];
   if(!s||!t||e.touches.length) return;
   var sel=window.getSelection&&window.getSelection(); if(sel&&String(sel).length){ lastTap=null; return; }
-  var dx=t.clientX-s.x, dy=t.clientY-s.y, dt=Date.now()-s.at;
-  if(s.moved){
-    lastTap=null;
-    if(dt>700||(s.el&&s.el.closest&&s.el.closest('input,textarea,[contenteditable]'))) return;
-    var ax=Math.abs(dx), ay=Math.abs(dy);
-    if(ax>60&&ax>2*ay) post({type:'swipe:'+(dx<0?'left':'right')});
-    else if(ay>60&&ay>2*ax&&window.scrollY===s.sy) post({type:'swipe:'+(dy<0?'up':'down')});
-    return;
-  }
-  if(dt>500||control(s.el)){ lastTap=null; return; } // a long press, or a link/button/input
+  if(s.moved){ lastTap=null; swipe(s,t.clientX,t.clientY); return; }
+  if(Date.now()-s.at>500||control(s.el)){ lastTap=null; return; } // a long press, or a link/button/input
   var now=Date.now();
-  if(lastTap&&now-lastTap.at<300&&Math.abs(t.clientX-lastTap.x)<30&&Math.abs(t.clientY-lastTap.y)<30){
+  if(lastTap&&now-lastTap.at<350&&Math.abs(t.clientX-lastTap.x)<40&&Math.abs(t.clientY-lastTap.y)<40){
     lastTap=null; e.preventDefault(); post({type:'doubleTap'}); return;
   }
   lastTap={at:now,x:t.clientX,y:t.clientY};

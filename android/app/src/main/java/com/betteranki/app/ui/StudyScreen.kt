@@ -261,10 +261,18 @@ fun StudyScreen(app: AppState, deckId: Long, startOffline: Boolean = false) {
         if (a == StudyAction.NONE) return
         if (g.name.startsWith("TAP_") && controls[StudyGesture.DOUBLE_TAP] != StudyAction.NONE) {
             pendingTap?.cancel()
-            pendingTap = scope.launch { delay(330); pendingTap = null; run(a) }
+            pendingTap = scope.launch { delay(380); pendingTap = null; run(a) }
         } else run(a)
     }
+    // a beta.4 server's page and the app's own copy of the gesture script both report each gesture: count it once
+    val lastGesture = remember { arrayOf("") }
+    val lastGestureAt = remember { longArrayOf(0L) }
     fun onCardMessage(type: String) {
+        if (type == "doubleTap" || type.startsWith("tap:") || type.startsWith("swipe:")) {
+            val now = System.currentTimeMillis()
+            if (type == lastGesture[0] && now - lastGestureAt[0] < 200) return
+            lastGesture[0] = type; lastGestureAt[0] = now
+        }
         when {
             type == "showAnswer" -> reveal()
             type == "doubleTap" -> gesture(StudyGesture.DOUBLE_TAP)
