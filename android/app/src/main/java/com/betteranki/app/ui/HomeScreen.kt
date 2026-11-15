@@ -39,6 +39,11 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -361,19 +366,36 @@ fun StatsTab(app: AppState) {
             item {
                 Panel(Modifier.padding(16.dp).fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
-                        Text("Calendar", fontWeight = FontWeight.SemiBold)
-                        Text("Reviews per day, last 16 weeks", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(10.dp))
                         val days = s.heatmap.takeLast(16 * 7)
+                        var picked by remember { mutableStateOf<Int?>(null) }
+                        Text("Calendar", fontWeight = FontWeight.SemiBold)
+                        // tap a day for its count
+                        Text(
+                            picked?.let { days.getOrNull(it) }?.let { d -> "${fmtDay(d.date)} · ${d.count} review${if (d.count == 1) "" else "s"}" } ?: "Reviews per day, last 16 weeks · tap a day",
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(10.dp))
                         val max = (days.maxOfOrNull { it.count } ?: 1).coerceAtLeast(1)
                         val levels = if (dark) listOf(Color(0xFF1F2330), Color(0xFF184F95), Color(0xFF256ABF), Color(0xFF3987E5), Color(0xFF86B6EF)) else listOf(Color(0xFFEEF1F6), Color(0xFFB7D3F6), Color(0xFF6DA7EC), Color(0xFF2A78D6), Color(0xFF184F95))
-                        Canvas(Modifier.fillMaxWidth().height(120.dp)) {
-                            val weeks = 16
+                        val ring = MaterialTheme.colorScheme.onSurface
+                        val weeks = 16
+                        // as wide as the panel: 16 week columns of 7 days
+                        Canvas(
+                            Modifier.fillMaxWidth().aspectRatio(16f / 7f).pointerInput(days.size) {
+                                detectTapGestures { p ->
+                                    val step = (size.width + 3.dp.toPx()) / weeks
+                                    val i = (p.x / step).toInt() * 7 + (p.y / step).toInt().coerceIn(0, 6)
+                                    picked = if (i in days.indices && picked != i) i else null
+                                }
+                            },
+                        ) {
                             val gap = 3.dp.toPx()
                             val cell = minOf((size.width - gap * (weeks - 1)) / weeks, (size.height - gap * 6) / 7)
                             days.forEachIndexed { i, d ->
                                 val lvl = if (d.count == 0) 0 else minOf(4, 1 + (d.count * 4 / (max + 1)))
-                                drawRoundRect(levels[lvl], topLeft = Offset((i / 7) * (cell + gap), (i % 7) * (cell + gap)), size = Size(cell, cell), cornerRadius = CornerRadius(3.dp.toPx()))
+                                val tl = Offset((i / 7) * (cell + gap), (i % 7) * (cell + gap))
+                                drawRoundRect(levels[lvl], topLeft = tl, size = Size(cell, cell), cornerRadius = CornerRadius(3.dp.toPx()))
+                                if (i == picked) drawRoundRect(ring, topLeft = tl, size = Size(cell, cell), cornerRadius = CornerRadius(3.dp.toPx()), style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
                             }
                         }
                     }
@@ -382,17 +404,36 @@ fun StatsTab(app: AppState) {
             item {
                 Panel(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
+                        val f = s.forecast.take(31)
+                        var bar by remember { mutableStateOf<Int?>(null) }
                         Text("Future due", fontWeight = FontWeight.SemiBold)
-                        Text("Next 30 days", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            bar?.let { f.getOrNull(it) }?.let { d -> "${if (d.day == 0) "Today" else if (d.day == 1) "Tomorrow" else "In ${d.day} days"} · ${d.learn} learning, ${d.young} young, ${d.mature} mature" } ?: "Next 30 days · touch a day",
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             listOf("Learning", "Young", "Mature").forEachIndexed { i, l ->
                                 Row(verticalAlignment = Alignment.CenterVertically) { Dot(series[i]); Text(" $l", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
                         }
-                        val f = s.forecast.take(31)
                         val max = (f.maxOfOrNull { it.learn + it.young + it.mature } ?: 1).coerceAtLeast(1)
                         val grid = MaterialTheme.colorScheme.outline
-                        Canvas(Modifier.fillMaxWidth().height(140.dp)) {
+                        val hl = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+                        Canvas(Modifier.fillMaxWidth().height(140.dp).pointerInput(f.size) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                fun pick(x: Float) { bar = (x / (size.width.toFloat() / f.size)).toInt().coerceIn(0, f.size - 1) }
+                                pick(down.position.x)
+                                while (true) {
+                                    val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Final)
+                                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!ch.pressed || ch.isConsumed) break
+                                    pick(ch.position.x)
+                                }
+                                bar = null
+                            }
+                        }) {
+                            bar?.let { b -> val band = size.width / f.size; drawRect(hl, Offset(b * band, 0f), Size(band, size.height)) }
                             val band = size.width / f.size
                             val bw = minOf(band - 2.dp.toPx(), 24.dp.toPx())
                             drawLine(grid, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
@@ -433,6 +474,10 @@ fun StatsTab(app: AppState) {
         }
     }
 }
+
+private fun fmtDay(date: String): String = try {
+    java.time.LocalDate.parse(date).format(java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d"))
+} catch (_: Exception) { date }
 
 // ---------------- Settings ----------------
 @Composable

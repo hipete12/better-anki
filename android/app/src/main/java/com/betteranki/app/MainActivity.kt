@@ -181,7 +181,10 @@ class MainActivity : ComponentActivity() {
                 BetterAnkiTheme(dark, appearance.font.family) {
                     val app: AppState = viewModel()
                     LaunchedEffect(Unit) { app.init(store, applicationContext) }
-                    if (app.loaded) Root(app)
+                    // a Surface so every screen gets the theme's text color (screens outside the tab Scaffold drew black text in dark mode)
+                    androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
+                        if (app.loaded) Root(app)
+                    }
                 }
             }
         }
