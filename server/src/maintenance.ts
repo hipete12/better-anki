@@ -5,6 +5,7 @@ import type { NoteRow } from "./types";
 import { cardOrdsForNote } from "./render/template";
 import { fieldChecksum, joinFields, splitFields, nowSecs, stripHtml } from "./util";
 import { clearUndo } from "./sched/queue";
+import { clearHistory } from "./history";
 
 export function checkDatabase(col: Collection) {
   const report: string[] = [];
@@ -74,6 +75,7 @@ export function checkDatabase(col: Collection) {
   });
   col.db.exec("PRAGMA optimize; VACUUM; ANALYZE;");
   clearUndo();
+  clearHistory();
   if (!report.length) report.push("Database rebuilt and optimized. No problems found.");
   col.emit("checkDatabase");
   return { report };

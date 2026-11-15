@@ -166,11 +166,61 @@ export function changeNotetype(col: Collection, noteIds: number[], notetypeId: n
   return changed;
 }
 
+/** Where duplicates go in their deck's order ("#") and in the new-card queue. */
+export type DuplicatePlacement = "end" | "after" | "start" | "afterLast";
+
+const HOME = "(CASE WHEN c.odid != 0 THEN c.odid ELSE c.did END)";
+const ORDER_KEY = "COALESCE(n.sort_pos, n.id)";
+
+/** A deck's notes in its original order ("#"). */
+function deckOrder(col: Collection, did: number) {
+  return col.db
+    .query<{ id: number; k: number }, [number]>(`SELECT n.id id, ${ORDER_KEY} k FROM notes n WHERE n.id IN (SELECT nid FROM cards c WHERE ${HOME} = ?) ORDER BY k, n.id`)
+    .all(did);
+}
+
+/**
+ * Queue position for cards placed right after `anchor` in the deck's order: after the anchor's new cards, else
+ * before the first new card of a later note. With no anchor, before the deck's first new card. null = the end.
+ */
+function queueSlot(col: Collection, did: number, anchor: { id: number; k: number } | null, skip: number[]): number | null {
+  const pos = `(CASE WHEN c.odid != 0 THEN c.odue ELSE c.due END)`;
+  const notSkipped = skip.length ? `AND c.nid NOT IN (${skip.join(",")})` : "";
+  if (anchor) {
+    const own = col.db.query<{ m: number | null }, [number, number]>(`SELECT max(${pos}) m FROM cards c WHERE c.type=0 AND c.nid=? AND ${HOME}=?`).get(anchor.id, did)?.m;
+    if (own != null) return own + 1;
+  }
+  const later = anchor
+    ? col.db
+        .query<{ m: number | null }, [number, number, number, number]>(
+          `SELECT min(${pos}) m FROM cards c JOIN notes n ON n.id=c.nid WHERE c.type=0 AND ${HOME}=? ${notSkipped} AND (${ORDER_KEY} > ? OR (${ORDER_KEY} = ? AND n.id > ?))`,
+        )
+        .get(did, anchor.k, anchor.k, anchor.id)?.m
+    : col.db.query<{ m: number | null }, [number]>(`SELECT min(${pos}) m FROM cards c WHERE c.type=0 AND ${HOME}=? ${notSkipped}`).get(did)?.m;
+  return later ?? null;
+}
+
+/** Put new cards at queue position `p` (in the given order), moving every later new card back to make room. */
+function insertInQueue(col: Collection, p: number, cids: number[]) {
+  if (!cids.length) return;
+  const not = cids.join(",");
+  col.db.query(`UPDATE cards SET due=due+? WHERE type=0 AND odid=0 AND due>=? AND id NOT IN (${not})`).run(cids.length, p);
+  col.db.query(`UPDATE cards SET odue=odue+? WHERE type=0 AND odid!=0 AND odue>=? AND id NOT IN (${not})`).run(cids.length, p);
+  const set = col.db.query("UPDATE cards SET due=? WHERE id=?");
+  cids.forEach((id, i) => set.run(p + i, id));
+  const max = col.db.query<{ m: number | null }, []>("SELECT max(due) m FROM cards WHERE type=0").get()?.m ?? 0;
+  col.setKV("nextPos", max + 1);
+}
+
 /**
  * Duplicate the notes behind the given cards (or the given notes) as new notes created now: same fields
- * and tags, in the deck the original card lives in, with fresh new cards.
+ * and tags, in the deck the original card lives in, with fresh new cards. `place` puts the copies, in their
+ * originals' order, at the end of the deck (default), right after each original, at the start of the deck,
+ * or together right after the last original. It sets both the "#" order and the new-card queue.
  */
-export function duplicateNotes(col: Collection, b: { cardIds?: number[]; noteIds?: number[] }) {
+export function duplicateNotes(col: Collection, b: { cardIds?: number[]; noteIds?: number[]; place?: DuplicatePlacement }) {
+  const place: DuplicatePlacement = b.place ?? "end";
+  assert(["end", "after", "start", "afterLast"].includes(place), "Unknown placement");
   const deckFor = new Map<number, number>(); // nid -> home deck of the selected (or first) card
   for (const cid of b.cardIds ?? []) {
     const c = col.card(Number(cid));
@@ -182,17 +232,55 @@ export function duplicateNotes(col: Collection, b: { cardIds?: number[]; noteIds
     deckFor.set(Number(nid), c ? c.odid || c.did : 1);
   }
   assert(deckFor.size > 0, "Select some cards");
+  // group by deck, originals in the deck's order
+  const byDeck = new Map<number, number[]>();
+  for (const [nid, did] of deckFor) byDeck.set(did, [...(byDeck.get(did) ?? []), nid]);
   const created: number[] = [];
   let cards = 0;
   col.tx(() => {
-    for (const [nid, did] of deckFor) {
-      const n = col.note(nid);
-      if (!n) continue;
+    for (const [did, nids] of byDeck) {
+      const order = deckOrder(col, did);
+      const idx = new Map(order.map((o, i) => [o.id, i]));
+      const originals = nids.filter((n) => col.note(n)).sort((x, y) => (idx.get(x) ?? Infinity) - (idx.get(y) ?? Infinity));
       const deck = col.deck(did);
-      const r = col.addNote(n.ntid, splitFields(n.flds), parseTags(n.tags), deck && deck.kind === 0 ? did : 1, { allowEmpty: true });
-      created.push(r.id);
-      cards += r.cards;
+      const target = deck && deck.kind === 0 ? did : 1;
+      const copies: { orig: number; id: number; cids: number[] }[] = [];
+      for (const nid of originals) {
+        const n = col.note(nid)!;
+        const r = col.addNote(n.ntid, splitFields(n.flds), parseTags(n.tags), target, { allowEmpty: true });
+        copies.push({ orig: nid, id: r.id, cids: col.cardsOfNote(r.id).map((c) => c.id) });
+        created.push(r.id);
+        cards += r.cards;
+      }
+      if (place === "end" || target !== did || !copies.length) continue;
+      const setKey = col.db.query("UPDATE notes SET sort_pos=? WHERE id=?");
+      const skip = copies.map((c) => c.id); // copies aren't placed yet, so they don't count as later cards
+      const at = (nid: number) => order[idx.get(nid)!];
+      const nextKey = (i: number) => order[i + 1]?.k;
+      if (place === "start") {
+        const first = order[0]?.k ?? 0;
+        copies.forEach((c, i) => setKey.run(first - (copies.length - i), c.id));
+        const p = queueSlot(col, did, null, skip);
+        if (p != null) insertInQueue(col, p, copies.flatMap((c) => c.cids));
+      } else if (place === "after") {
+        for (const c of copies) {
+          const o = at(c.orig);
+          const nk = nextKey(idx.get(c.orig)!);
+          setKey.run(nk != null ? o.k + (nk - o.k) / 2 : o.k + 0.5, c.id);
+          const p = queueSlot(col, did, o, skip);
+          if (p != null) insertInQueue(col, p, c.cids);
+        }
+      } else {
+        const last = at(originals[originals.length - 1]);
+        const nk = nextKey(idx.get(last.id)!);
+        const gap = nk != null ? nk - last.k : 1;
+        copies.forEach((c, i) => setKey.run(last.k + (gap * (i + 1)) / (copies.length + 1), c.id));
+        const p = queueSlot(col, did, last, skip);
+        if (p != null) insertInQueue(col, p, copies.flatMap((c) => c.cids));
+      }
     }
   });
-  return { notes: created.length, cards, noteIds: created };
+  // card ids in deck order, so a client can select the copies
+  const cardIds = created.flatMap((nid) => col.cardsOfNote(nid).map((c) => c.id));
+  return { notes: created.length, cards, noteIds: created, cardIds };
 }

@@ -46,6 +46,8 @@ export interface NoteRow {
   flds: string;
   sfld: string;
   csum: number;
+  /** Place in the deck's original order ("#") when it isn't the creation order; null = by id. */
+  sort_pos?: number | null;
 }
 
 export interface FieldDef {

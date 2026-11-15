@@ -315,7 +315,19 @@ export function snapshotCards(col: Collection, cids: number[]): CardRow[] {
   return out;
 }
 
+let studyUndoSuppressed = 0;
+/** Run `fn` without adding to the study undo stack (Browse actions keep their own history, see history.ts). */
+export async function suppressStudyUndo<T>(fn: () => T | Promise<T>): Promise<T> {
+  studyUndoSuppressed++;
+  try {
+    return await fn();
+  } finally {
+    studyUndoSuppressed--;
+  }
+}
+
 export function pushUndo(entry: Omit<UndoEntry, "id" | "deleteCards" | "notes" | "revlog" | "deckToday"> & Partial<UndoEntry>) {
+  if (studyUndoSuppressed) return;
   undoStack.push({ id: newId(), deleteCards: [], notes: [], revlog: [], deckToday: [], ...entry });
   while (undoStack.length > UNDO_LIMIT) undoStack.shift();
 }

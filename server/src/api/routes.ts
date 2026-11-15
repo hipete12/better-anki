@@ -1,5 +1,5 @@
 import type { Collection } from "../collection";
-import { Router, num, type Ctx } from "./router";
+import { Router, num, type Ctx, type Handler } from "./router";
 import type { CardRow, DeckConfig, FilteredConfig, Notetype } from "../types";
 import { CardType, Queue } from "../types";
 import { assert, HttpError, nowSecs, splitFields, stripHtml, parseTags, dayNumber, sha1Hex, intervalLabel, escapeHtml, joinFields } from "../util";
@@ -20,6 +20,7 @@ import { FSRS, FSRS6_DEFAULT_PARAMS } from "../sched/fsrs";
 import { STOCK_NOTETYPES } from "../stock";
 import { layoutOptions, assignLayout, createLayout, changeNotetype, duplicateNotes, layoutNames, layoutFamilies } from "../layouts";
 import { buildPack, syncOffline, type SyncRequest } from "../offline";
+import { recordStep, undoStep, redoStep, historyStatus } from "../history";
 import { existsSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
@@ -44,6 +45,20 @@ function deckName(col: Collection, c: CardRow) {
 export function buildRoutes(col: Collection, opts: ServerOptions): Router {
   const r = new Router();
   const csvUploads = new Map<string, { text: string; created: number }>();
+
+  /**
+   * A Browse action: requests sent with ?history=browse become one step in the Browse undo/redo history
+   * (history.ts). The body is read first so the action's database work runs in one go. A null label skips it.
+   */
+  const browseAction =
+    (label: string | ((b: any) => string | null), h: Handler): Handler =>
+    async (ctx) => {
+      if (ctx.query.get("history") !== "browse") return h(ctx);
+      const body = await ctx.json();
+      const inner: Ctx = { ...ctx, json: async () => body };
+      const name = typeof label === "string" ? label : label(body);
+      return name ? recordStep(col, name, () => h(inner)) : h(inner);
+    };
 
   const renderFor = (c: CardRow, ctx: Ctx, extra: { night?: boolean; platform?: string; typed?: string | null; nightTokens?: boolean } = {}) => {
     const note = col.note(c.nid)!;
@@ -323,7 +338,7 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
       cards: col.cardsOfNote(note.id).map((c) => ({ id: c.id, ord: c.ord, did: c.odid || c.did, deck: col.deck(c.odid || c.did)?.name, template: nt.kind === 1 ? `Cloze ${c.ord + 1}` : nt.templates[c.ord]?.name, queue: c.queue, type: c.type })),
     };
   });
-  r.put("/api/notes/:id", async (ctx) => {
+  r.put("/api/notes/:id", browseAction("Edit note", async (ctx) => {
     const b = await ctx.json<{ fields?: string[]; tags?: string[] }>();
     const id = num(ctx.params.id);
     const before = col.note(id);
@@ -333,20 +348,23 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
     const created = col.cardsOfNote(id).filter((c) => !existingCards.has(c.id)).map((c) => c.id);
     pushUndo({ label: "Edit Note", cards: [], deleteCards: created, notes: [{ id, tags: before.tags, mtime: before.mtime, flds: before.flds }] });
     return { ok: true, newCards: created.length };
-  });
-  r.post("/api/notes/delete", async (ctx) => {
+  }));
+  r.post("/api/notes/delete", browseAction("Delete notes", async (ctx) => {
     const { noteIds } = await ctx.json<{ noteIds: number[] }>();
     col.removeNotes(noteIds);
     return { removed: noteIds.length };
-  });
-  r.post("/api/notes/tags", async (ctx) => {
+  }));
+  r.post("/api/notes/tags", browseAction((b: { add?: string[]; remove?: string[] }) => {
+    const only = (l?: string[]) => l?.length === 1 && l[0] === "marked";
+    return only(b.add) ? "Mark" : only(b.remove) ? "Unmark" : b.add?.length ? "Add tags" : "Remove tags";
+  }, async (ctx) => {
     const b = await ctx.json<{ noteIds: number[]; add?: string[]; remove?: string[] }>();
     const before = b.noteIds.map((id) => col.note(id)).filter(Boolean).map((n) => ({ id: n!.id, tags: n!.tags, mtime: n!.mtime }));
     col.modifyTags(b.noteIds, b.add ?? [], b.remove ?? []);
     pushUndo({ label: b.add?.length ? "Add Tags" : "Remove Tags", cards: [], notes: before });
     return { ok: true };
-  });
-  r.post("/api/notes/find-replace", async (ctx) => {
+  }));
+  r.post("/api/notes/find-replace", browseAction("Find and replace", async (ctx) => {
     const b = await ctx.json<{ noteIds: number[]; find: string; replace: string; regex?: boolean; matchCase?: boolean; field?: string | null }>();
     assert(b.find, "Nothing to find");
     const re = new RegExp(b.regex ? b.find : b.find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), b.matchCase ? "g" : "gi");
@@ -379,12 +397,12 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
       }
     });
     return { changed };
-  });
-  r.post("/api/notes/change-notetype", async (ctx) => {
+  }));
+  r.post("/api/notes/change-notetype", browseAction("Change note type", async (ctx) => {
     const b = await ctx.json<{ noteIds: number[]; notetypeId: number; fieldMap: number[]; templateMap?: number[] }>();
     return { changed: changeNotetype(col, b.noteIds, b.notetypeId, b.fieldMap, b.templateMap) };
-  });
-  r.post("/api/notes/duplicate", async (ctx) => duplicateNotes(col, await ctx.json<{ cardIds?: number[]; noteIds?: number[] }>()));
+  }));
+  r.post("/api/notes/duplicate", browseAction("Duplicate", async (ctx) => duplicateNotes(col, await ctx.json())));
 
   // ---------------- offline study (docs/OFFLINE.md) ----------------
   r.post("/api/offline/pack", async (ctx) => {
@@ -403,11 +421,11 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
   // ---------------- display order (layouts) ----------------
   r.get("/api/layouts", () => layoutFamilies(col));
   r.post("/api/layouts/options", async (ctx) => layoutOptions(col, (await ctx.json<{ cardIds: number[] }>()).cardIds ?? []));
-  r.post("/api/layouts/assign", async (ctx) => {
+  r.post("/api/layouts/assign", browseAction("Display order", async (ctx) => {
     const b = await ctx.json<{ cardIds: number[]; notetypeId: number }>();
     return assignLayout(col, b.cardIds ?? [], Number(b.notetypeId));
-  });
-  r.post("/api/layouts", async (ctx) => createLayout(col, await ctx.json<{ cardIds: number[]; name: string; qfmt: string; afmt: string }>()));
+  }));
+  r.post("/api/layouts", browseAction("Display order", async (ctx) => createLayout(col, await ctx.json<{ cardIds: number[]; name: string; qfmt: string; afmt: string }>())));
 
   // ---------------- cards ----------------
   r.get("/api/cards/:id", (ctx) => {
@@ -416,7 +434,13 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
     return { ...cardSummary(c), ...renderFor(c, ctx) };
   });
   r.get("/api/cards/:id/info", (ctx) => cardInfo(col, num(ctx.params.id)));
-  r.post("/api/cards/actions", async (ctx) => cardAction(col, await ctx.json<CardAction>()));
+  r.post(
+    "/api/cards/actions",
+    browseAction((b: CardAction) =>
+      b.action === "reposition" ? null // order isn't part of the history
+      : b.action === "flag" ? (b.flag ? "Flag" : "Remove flag")
+      : ({ suspend: "Suspend", unsuspend: "Unsuspend", bury: "Bury", unbury: "Unbury", forget: "Reset", delete: "Delete cards", setDeck: "Change deck", setDue: "Set due date" } as Record<string, string>)[b.action] ?? null, async (ctx) => cardAction(col, await ctx.json<CardAction>())),
+  );
   r.post("/api/render/preview", async (ctx) => {
     // Render arbitrary content (card template editor / add-note preview)
     const b = await ctx.json<{ notetype?: Notetype; notetypeId?: number; fields: string[]; ord: number; tags?: string; night?: boolean; platform?: string }>();
@@ -504,6 +528,10 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
     return { answer: renderFor(c, ctx, { night: b.night, platform: b.platform, typed: b.typed ?? "" }).answer };
   });
   r.get("/api/undo", () => undoStatus());
+  // Browse undo/redo (history.ts)
+  r.get("/api/history", () => historyStatus());
+  r.post("/api/history/undo", () => undoStep(col));
+  r.post("/api/history/redo", () => redoStep(col));
   r.post("/api/undo", () => ({ undone: undo(col)?.label ?? null }));
 
   // ---------------- stats ----------------
@@ -723,12 +751,13 @@ function browse(col: Collection, ctx: Ctx) {
     const nt = col.notetype(r.ntid);
     return nt?.kind === 1 ? `Cloze ${r.ord + 1}` : (nt?.templates[r.ord]?.name ?? "");
   };
-  // "#": position in the order the home deck came with (by note creation, then card template), 1-based per deck
+  // "#": position in the order the home deck came with (by note creation, or where a duplicate was placed, then card template), 1-based per deck
   const order = new Map<number, number>();
   for (const o of col.db
     .query<{ id: number; card: number; note: number }, []>(
-      `SELECT id, ROW_NUMBER() OVER w card, DENSE_RANK() OVER (PARTITION BY CASE WHEN odid != 0 THEN odid ELSE did END ORDER BY nid) note
-       FROM cards WINDOW w AS (PARTITION BY CASE WHEN odid != 0 THEN odid ELSE did END ORDER BY nid, ord)`,
+      `SELECT c.id id, ROW_NUMBER() OVER w card, DENSE_RANK() OVER (PARTITION BY CASE WHEN c.odid != 0 THEN c.odid ELSE c.did END ORDER BY COALESCE(n.sort_pos, n.id), n.id) note
+       FROM cards c JOIN notes n ON n.id = c.nid
+       WINDOW w AS (PARTITION BY CASE WHEN c.odid != 0 THEN c.odid ELSE c.did END ORDER BY COALESCE(n.sort_pos, n.id), n.id, c.ord)`,
     )
     .iterate())
     order.set(o.id, mode === "notes" ? o.note : o.card);

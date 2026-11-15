@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -134,5 +134,7 @@ function migrate(db: Database) {
   if (!has("cards", "usn")) db.exec("ALTER TABLE cards ADD COLUMN usn INTEGER NOT NULL DEFAULT 0");
   if (!has("revlog", "usn")) db.exec("ALTER TABLE revlog ADD COLUMN usn INTEGER NOT NULL DEFAULT 0");
   db.exec(SYNC_SCHEMA);
+  // v3: a note's place in its deck's original order ("#") when that isn't its creation order (a duplicate placed after its original)
+  if (!has("notes", "sort_pos")) db.exec("ALTER TABLE notes ADD COLUMN sort_pos REAL");
   db.query("UPDATE config SET value=? WHERE key='schema_version' AND CAST(value AS INTEGER) < ?").run(String(SCHEMA_VERSION), SCHEMA_VERSION);
 }
