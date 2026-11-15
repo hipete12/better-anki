@@ -150,6 +150,20 @@ document.addEventListener('keydown',function(e){
   post({type:'key',key:e.key,code:e.code,ctrl:e.ctrlKey,meta:e.metaKey,shift:e.shiftKey,alt:e.altKey});
   if(e.key===' '||e.key==='Enter') e.preventDefault();
 });
+// double-tap on the card (touch only, not on links, sounds, inputs or while selecting text): the app undoes
+var lastTap=null;
+document.addEventListener('touchstart',function(e){ if(e.touches.length>1) lastTap=null; },{passive:true});
+document.addEventListener('touchend',function(e){
+  var t=e.changedTouches&&e.changedTouches[0]; if(!t||e.touches.length) return;
+  var el=e.target; if(el&&el.closest&&el.closest('a,button,input,textarea,select,summary,label,[contenteditable],.soundLink,.hint')){ lastTap=null; return; }
+  var now=Date.now();
+  if(lastTap&&now-lastTap.at<350&&Math.abs(t.clientX-lastTap.x)<30&&Math.abs(t.clientY-lastTap.y)<30){
+    lastTap=null; var sel=window.getSelection&&window.getSelection(); if(sel&&String(sel).length) return;
+    e.preventDefault(); post({type:'doubleTap'}); return;
+  }
+  lastTap={at:now,x:t.clientX,y:t.clientY};
+});
+document.addEventListener('touchmove',function(){ lastTap=null; },{passive:true});
 document.addEventListener('click',function(e){
   var a=e.target&&e.target.closest&&e.target.closest('a[href]');
   if(a&&!a.classList.contains('soundLink')&&!a.classList.contains('hint')){ var h=a.getAttribute('href'); if(h&&/^https?:/i.test(h)){ e.preventDefault(); post({type:'openLink',url:h}); } }

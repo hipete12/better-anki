@@ -296,7 +296,7 @@ fun StudyScreen(app: AppState, deckId: Long, startOffline: Boolean = false) {
                     baseUrl = mediaBaseOf(html, app.api.server + "/"),
                     controller = controller,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    onMessage = { type -> if (type == "showAnswer") reveal() },
+                    onMessage = { type -> if (type == "showAnswer") reveal() else if (type == "doubleTap" && state?.undo?.available == true) undo() },
                     onLink = { pendingLink = it },
                     offlineMedia = if (offline) app.offline::media else null,
                 )
