@@ -25,7 +25,7 @@ import { existsSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 
-export const VERSION = "0.2.0-beta.5";
+export const VERSION = "0.2.0";
 
 export interface ServerOptions {
   /** Issues short-lived, HMAC-signed media URL tokens bound to a session. */

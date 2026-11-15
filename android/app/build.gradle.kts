@@ -14,8 +14,8 @@ android {
         applicationId = "com.betteranki.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.2.0-beta.5"
+        versionCode = 7
+        versionName = "0.2.0"
     }
 
     // Release signing: android/keystore.properties (gitignored) points at a keystore kept outside the repo.
