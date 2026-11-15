@@ -2,6 +2,7 @@ package com.betteranki.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -253,6 +254,19 @@ fun StudyScreen(app: AppState, deckId: Long, startOffline: Boolean = false) {
         }
         return true
     }
+    // With gesture navigation, a swipe from the screen's side edge is Android's Back. When swipe left/right is bound,
+    // keep a band in the middle of each side for the card (Android allows up to 200dp per edge); Back works elsewhere.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val edgeSwipes = if (controls[StudyGesture.SWIPE_LEFT] == StudyAction.NONE && controls[StudyGesture.SWIPE_RIGHT] == StudyAction.NONE) Modifier else {
+        val band = with(density) { 200.dp.toPx() }
+        val strip = with(density) { 48.dp.toPx() }
+        fun rect(c: androidx.compose.ui.layout.LayoutCoordinates, left: Boolean): androidx.compose.ui.geometry.Rect {
+            val w = c.size.width.toFloat(); val h = c.size.height.toFloat()
+            val top = ((h - band) / 2).coerceAtLeast(0f)
+            return androidx.compose.ui.geometry.Rect(if (left) 0f else w - strip, top, if (left) strip else w, (top + band).coerceAtMost(h))
+        }
+        Modifier.systemGestureExclusion { rect(it, true) }.systemGestureExclusion { rect(it, false) }
+    }
     // a single tap waits briefly when double tap does something, so a double tap doesn't also run the tap's action
     var pendingTap by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     fun gesture(g: StudyGesture) {
@@ -366,7 +380,7 @@ fun StudyScreen(app: AppState, deckId: Long, startOffline: Boolean = false) {
                     html = html,
                     baseUrl = mediaBaseOf(html, app.api.server + "/"),
                     controller = controller,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier.weight(1f).fillMaxWidth().then(edgeSwipes),
                     onMessage = { onCardMessage(it) },
                     onLink = { pendingLink = it },
                     offlineMedia = if (offline) app.offline::media else null,

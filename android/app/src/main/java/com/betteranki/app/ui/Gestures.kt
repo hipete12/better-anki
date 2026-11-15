@@ -189,7 +189,7 @@ fun GesturesScreen(app: AppState) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Double tap and swipes", fontWeight = FontWeight.SemiBold)
                     listOf(StudyGesture.DOUBLE_TAP, StudyGesture.SWIPE_LEFT, StudyGesture.SWIPE_RIGHT, StudyGesture.SWIPE_UP, StudyGesture.SWIPE_DOWN).forEach { g -> GestureRow(g, controls) }
-                    Hint("Swipes up and down only count when the card doesn't scroll.")
+                    Hint("Swipes up and down only count when the card doesn't scroll. With gesture navigation, a swipe that starts right at the edge of the screen is Android's Back, except in the middle of the card's sides, which is kept for swipes when one is set.")
                 }
             }
             Panel(Modifier.fillMaxWidth()) {
