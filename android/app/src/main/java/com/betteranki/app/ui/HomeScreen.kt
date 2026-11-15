@@ -44,6 +44,10 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.background
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import kotlin.math.roundToInt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -193,7 +197,7 @@ fun DecksTab(app: AppState) {
                             rows.forEach { (node, depth) ->
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                                 DeckRow(
-                                    node, depth, node.id in collapsed.value,
+                                    node, depth, node.id in collapsed.value, current = node.id == d.currentDeckId,
                                     onToggle = {
                                         val c = collapsed.value
                                         collapsed.value = if (node.id in c) c - node.id else c + node.id
@@ -204,6 +208,14 @@ fun DecksTab(app: AppState) {
                                 )
                             }
                         }
+                    }
+                }
+                home?.let { h ->
+                    if (d.tree.isNotEmpty()) item {
+                        Text(
+                            "${"%,d".format(h.cards.total)} cards · ${"%,d".format(h.cards.mature)} mature" + (h.retention30?.let { " · ${it.roundToInt()}% retention (30 days)" } ?: ""),
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp),
+                        )
                     }
                 }
             }
@@ -309,7 +321,7 @@ fun DeckCountColumns(new: Int, learn: Int, review: Int) {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun DeckRow(node: DeckNode, depth: Int, collapsed: Boolean, onToggle: () -> Unit, onClick: () -> Unit, menu: List<MenuItem?>) {
+private fun DeckRow(node: DeckNode, depth: Int, collapsed: Boolean, current: Boolean, onToggle: () -> Unit, onClick: () -> Unit, menu: List<MenuItem?>) {
     var open by remember { mutableStateOf(false) }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     Box {
@@ -324,6 +336,7 @@ private fun DeckRow(node: DeckNode, depth: Int, collapsed: Boolean, onToggle: ()
             }
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 Text(node.shortName, Modifier.weight(1f, fill = false), fontWeight = if (depth == 0) FontWeight.Medium else FontWeight.Normal, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontStyle = if (node.kind == 1) FontStyle.Italic else FontStyle.Normal)
+                if (current) Box(Modifier.padding(start = 6.dp).size(6.dp).background(appColors.brand, RoundedCornerShape(50)).semantics { contentDescription = "Current deck" })
                 Text(if (node.kind == 1) "filtered" else "${node.total}", Modifier.padding(start = 6.dp), fontSize = 12.sp, color = if (node.kind == 1) appColors.brand else appColors.faint, maxLines = 1)
             }
             DeckCountColumns(node.counts.new, node.counts.learn, node.counts.review)

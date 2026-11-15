@@ -80,11 +80,14 @@ Check database, empty cards, check media (unused/missing), automatic encrypted b
 | Capability | Web | Android |
 |---|---|---|
 | Sign-in/setup, transport security indicator, device list & revoke | ✅ | ✅ |
-| Deck list (tree, counts), create | ✅ | ✅ |
-| Deck rename/delete/options/export, filtered decks, custom study | ✅ | ⛔ (use web) |
+| Deck list (tree, counts, card-state trend), create, rename, add subdeck, delete | ✅ | ✅ (long-press a deck) |
+| Deck page (counts, limits left today, trend, cards by maturity, description) | ✅ | ✅ |
+| Deck options, export, creating filtered decks, custom study | ✅ | ⛔ (use web); rebuild/empty filtered decks ✅ |
 | Study (all card types, audio, typed answers, flags, mark, bury, suspend, undo, edit) | ✅ | ✅ |
 | Add / edit notes | ✅ rich | ✅ plain text |
-| Browse | ✅ full | 🟡 search + edit |
+| Browse: search, sort, filters, state and deck-order columns, Display order, duplicate, flag, suspend, bury, mark, tags, change deck, reset, delete | ✅ table | ✅ list (long-press to select; "Show" picks row details) |
+| Browse: notes mode, find and replace, reposition, set due date, card info, export selected | ✅ | ⛔ (use web) |
+| Appearance: theme and font | ✅ | ✅ |
 | Stats | ✅ full | 🟡 summary, heatmap, forecast, retention |
 | Note types, deck options, import, maintenance | ✅ | ⛔ (use web) |
 | Offline study (download decks, study, sync with per-card conflict resolution) | ⛔ (planned) | ✅ ([OFFLINE.md](OFFLINE.md)) |
