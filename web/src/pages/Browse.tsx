@@ -236,32 +236,32 @@ export default function Browse() {
             <SlidersHorizontal className="size-5" />
           </IconButton>
         </div>
-        <div className="flex items-center gap-2 px-3 sm:px-4 h-11 border-b border-app text-sm">
-          <span className="text-muted">
+        <div className="@container flex flex-wrap items-center gap-x-2 gap-y-1 px-3 sm:px-4 py-1 min-h-11 border-b border-app text-sm">
+          <span className="text-muted whitespace-nowrap">
             {total.toLocaleString()} {mode} {selected.size > 0 && <span className="text-app font-medium">· {selected.size} selected</span>}
           </span>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-0.5">
             {selected.size > 0 && (
               <>
-                <Button size="sm" variant="ghost" onClick={() => setModal("deck")}>
-                  <FolderInput className="size-4" /> <span className="hidden sm:inline">Change deck</span>
+                <Button size="sm" variant="ghost" onClick={() => setModal("deck")} title="Change deck">
+                  <FolderInput className="size-4" /> <span className="hidden @3xl:inline">Change deck</span>
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => cardAct({ action: anySuspended ? "unsuspend" : "suspend" }, anySuspended ? "Unsuspended" : "Suspended")}>
-                  <PauseCircle className="size-4" /> <span className="hidden sm:inline">{anySuspended ? "Unsuspend" : "Suspend"}</span>
+                <Button size="sm" variant="ghost" onClick={() => cardAct({ action: anySuspended ? "unsuspend" : "suspend" }, anySuspended ? "Unsuspended" : "Suspended")} title={anySuspended ? "Unsuspend" : "Suspend"}>
+                  <PauseCircle className="size-4" /> <span className="hidden @3xl:inline">{anySuspended ? "Unsuspend" : "Suspend"}</span>
                 </Button>
                 <Menu
                   trigger={(t) => (
-                    <Button size="sm" variant="ghost" onClick={t}>
-                      <Flag className="size-4" /> <span className="hidden sm:inline">Flag</span>
+                    <Button size="sm" variant="ghost" onClick={t} title="Flag">
+                      <Flag className="size-4" /> <span className="hidden @3xl:inline">Flag</span>
                     </Button>
                   )}
                   items={FLAG_NAMES.map((n, i) => ({ label: n, icon: <Flag style={{ color: FLAG_COLORS[i] || undefined, fill: FLAG_COLORS[i] || "none" }} />, onClick: () => cardAct({ action: "flag", flag: i }, i ? `Flagged ${n.toLowerCase()}` : "Flag removed") }))}
                 />
-                <Button size="sm" variant="ghost" onClick={openDisplayOrder}>
-                  <LayoutTemplate className="size-4" /> <span className="hidden sm:inline">Display order</span>
+                <Button size="sm" variant="ghost" onClick={openDisplayOrder} title="Display order">
+                  <LayoutTemplate className="size-4" /> <span className="hidden @3xl:inline">Display order</span>
                 </Button>
-                <Button size="sm" variant="ghost" onClick={duplicate}>
-                  <Copy className="size-4" /> <span className="hidden sm:inline">Duplicate</span>
+                <Button size="sm" variant="ghost" onClick={duplicate} title="Duplicate">
+                  <Copy className="size-4" /> <span className="hidden @3xl:inline">Duplicate</span>
                 </Button>
               </>
             )}
