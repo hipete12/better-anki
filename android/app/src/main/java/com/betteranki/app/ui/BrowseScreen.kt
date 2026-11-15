@@ -527,10 +527,14 @@ private fun FilterSheet(app: AppState, current: String, onDismiss: () -> Unit, o
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = MaterialTheme.colorScheme.surface) {
         Text("Filters", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.padding(start = 20.dp, bottom = 4.dp))
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 32.dp)) {
-            fun section(title: String) = item(key = "s-$title") {
+            // keys by section and position: the same search can appear twice (a note type, and its Default display order)
+            var sec = ""
+            var pos = 0
+            fun sectionHeader(title: String) = item(key = "s-$title") {
                 Text(title.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.6.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp))
             }
-            fun entry(q: String, label: String, depth: Int = 0, dot: (@Composable () -> Unit)? = null) = item(key = "q-$q") {
+            fun section(title: String) { sec = title; pos = 0; sectionHeader(title) }
+            fun entry(q: String, label: String, depth: Int = 0, dot: (@Composable () -> Unit)? = null) = item(key = "q-$sec-${pos++}") {
                 val on = q == current
                 Row(
                     Modifier.fillMaxWidth().clickable { onSearch(q) }.background(if (on) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
