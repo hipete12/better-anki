@@ -30,8 +30,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.RadioButton
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
@@ -107,6 +118,7 @@ import com.betteranki.app.data.BrowseRow
 import com.betteranki.app.data.Changed
 import com.betteranki.app.data.DeckListItem
 import com.betteranki.app.data.Duplicated
+import com.betteranki.app.data.HistoryStatus
 import com.betteranki.app.data.LayoutFamily
 import com.betteranki.app.data.Notetype
 import kotlinx.coroutines.launch
@@ -167,6 +179,11 @@ class BrowseState {
     var error by mutableStateOf<String?>(null)
     var loading by mutableStateOf(false)
     var selected by mutableStateOf<Set<Long>>(emptySet())
+    /** What Undo and Redo would do (the server's Browse history). */
+    var history by mutableStateOf(HistoryStatus())
+    /** Where duplicates go: end, after, start or afterLast (remembered). */
+    var placement by mutableStateOf("end")
+        private set
     val list = LazyListState()
     private var prefs: android.content.SharedPreferences? = null
     private var seq = 0
@@ -178,7 +195,9 @@ class BrowseState {
         p.getString("sort", null)?.let { s -> if (SORTS.any { it.first == s }) sort = s }
         desc = p.getBoolean("desc", true)
         p.getStringSet("shown", null)?.let { shown = it.toSet() }
+        p.getString("placement", null)?.let { s -> if (PLACEMENTS.any { it.value == s }) placement = s }
     }
+    fun place(v: String) { placement = v; prefs?.edit()?.putString("placement", v)?.apply() }
     fun search(q: String) { input = q; query = q; selected = emptySet() }
     /** Forget results and selection (signing out). */
     fun clear() { rows.clear(); ids = emptyList(); total = 0; selected = emptySet(); search("deck:current") }
@@ -200,6 +219,7 @@ class BrowseState {
             if (my != seq) return
             rows.clear(); rows.addAll(r.rows); total = r.total; ids = r.ids; error = null
             selected = selected.intersect(r.ids.toSet())
+            history = try { app.api.get<HistoryStatus>("/api/history") } catch (_: Exception) { history }
         } catch (e: Exception) {
             if (my == seq) error = e.message
         } finally {
@@ -281,6 +301,20 @@ fun BrowseTab(app: AppState, initialQuery: String? = null) {
                 }
             }
             Spacer(Modifier.weight(1f))
+            fun step(dir: String) = scope.launch {
+                try {
+                    val r = app.api.post<HistoryStatus>("/api/history/$dir")
+                    b.history = r
+                    r.done?.let { app.notice = "${if (dir == "undo") "Undid" else "Redid"} “$it”" }
+                } catch (e: Exception) { app.notice = e.message }
+                b.reload(app)
+            }
+            IconButton(onClick = { step("undo") }, enabled = b.history.undo != null) {
+                Icon(Icons.AutoMirrored.Filled.Undo, b.history.undo?.let { "Undo $it" } ?: "Undo", tint = if (b.history.undo != null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline)
+            }
+            IconButton(onClick = { step("redo") }, enabled = b.history.redo != null) {
+                Icon(Icons.AutoMirrored.Filled.Redo, b.history.redo?.let { "Redo $it" } ?: "Redo", tint = if (b.history.redo != null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline)
+            }
             IconButton(onClick = { columns = true }) { Icon(Icons.Default.ViewColumn, "Choose what rows show", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         Box(Modifier.fillMaxWidth().height(2.dp)) {
@@ -393,16 +427,16 @@ private fun SelectionActions(app: AppState, b: BrowseState) {
         try { f(); msg?.let { app.notice = it }; b.reload(app) } catch (e: Exception) { app.notice = e.message }
     }
     fun cardAct(action: String, msg: String, extra: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {}) = run(msg) {
-        app.api.post<Changed>("/api/cards/actions", buildJsonObject { put("action", action); putJsonArray("cardIds") { b.selected.forEach { add(it) } }; extra() })
+        app.api.post<Changed>("/api/cards/actions$HISTORY", buildJsonObject { put("action", action); putJsonArray("cardIds") { b.selected.forEach { add(it) } }; extra() })
     }
     fun tags(add: Boolean, list: List<String>) = run(if (add) "Tags added" else "Tags removed") {
         val nids = b.selectedNotes(app)
-        app.api.post<JsonObject>("/api/notes/tags", buildJsonObject { putJsonArray("noteIds") { nids.forEach { add(it) } }; putJsonArray(if (add) "add" else "remove") { list.forEach { add(it) } } })
+        app.api.post<JsonObject>("/api/notes/tags$HISTORY", buildJsonObject { putJsonArray("noteIds") { nids.forEach { add(it) } }; putJsonArray(if (add) "add" else "remove") { list.forEach { add(it) } } })
     }
     fun duplicate() = run(null) {
-        val r = app.api.post<Duplicated>("/api/notes/duplicate", buildJsonObject { putJsonArray("cardIds") { b.selected.forEach { add(it) } } })
-        app.notice = "Duplicated ${r.notes} note${if (r.notes == 1) "" else "s"} (${r.cards} card${if (r.cards == 1) "" else "s"})"
-        b.selected = emptySet()
+        val r = app.api.post<Duplicated>("/api/notes/duplicate$HISTORY", buildJsonObject { putJsonArray("cardIds") { b.selected.forEach { add(it) } }; put("place", b.placement) })
+        app.notice = "Duplicated ${r.notes} note${if (r.notes == 1) "" else "s"} (${r.cards} card${if (r.cards == 1) "" else "s"}). The copies are selected."
+        b.selected = r.cardIds.toSet() // the next action applies to the copies
     }
     Surface(color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
@@ -414,7 +448,7 @@ private fun SelectionActions(app: AppState, b: BrowseState) {
                 content()
             }
             action("Display order", Icons.Default.Dashboard, { app.push(Screen.DisplayOrder(b.selected.toList())) })
-            action("Duplicate", Icons.Default.ContentCopy, { if (n > 1) dialog = "duplicate" else duplicate() })
+            action("Duplicate", Icons.Default.ContentCopy, { dialog = "duplicate" })
             action("Flag", Icons.Default.Flag, { flagMenu = true }) {
                 DropdownMenu(flagMenu, { flagMenu = false }) {
                     (1..7).forEach { f ->
@@ -449,12 +483,12 @@ private fun SelectionActions(app: AppState, b: BrowseState) {
     }
     val what = "$n card${if (n == 1) "" else "s"}"
     when (dialog) {
-        "duplicate" -> Confirm("Duplicate $what?", "Each copy is a new note created now, with the same fields and tags, in the same deck. Copies start as new cards.", "Duplicate", onDismiss = { dialog = null }) { duplicate() }
+        "duplicate" -> DuplicateDialog(what, b.placement, onPick = { b.place(it) }, onDismiss = { dialog = null }) { duplicate() }
         "forget" -> Confirm("Reset $what?", "They become new cards again. Their review history is kept.", "Reset", onDismiss = { dialog = null }) { cardAct("forget", "Reset to new") }
         "delete" -> Confirm("Delete the notes of $what?", "This deletes the notes and all of their cards, including cards that aren't selected.", "Delete", danger = true, onDismiss = { dialog = null }) {
             run("Notes deleted") {
                 val nids = b.selectedNotes(app)
-                app.api.post<JsonObject>("/api/notes/delete", buildJsonObject { putJsonArray("noteIds") { nids.forEach { add(it) } } })
+                app.api.post<JsonObject>("/api/notes/delete$HISTORY", buildJsonObject { putJsonArray("noteIds") { nids.forEach { add(it) } } })
                 b.selected = emptySet()
             }
         }
@@ -465,6 +499,50 @@ private fun SelectionActions(app: AppState, b: BrowseState) {
         }
     }
 }
+
+/** Duplicate placements, shown with the example of duplicating 2, 4 and 5 out of 1–6 (same as the web app). */
+private data class Placement(val value: String, val title: String, val note: String, val seq: List<String>)
+private val PLACEMENTS = listOf(
+    Placement("end", "End of the deck", "After every other card.", listOf("1", "2", "3", "4", "5", "6", "2′", "4′", "5′")),
+    Placement("after", "After each original", "Each copy goes right after the card it came from.", listOf("1", "2", "2′", "3", "4", "4′", "5", "5′", "6")),
+    Placement("start", "Start of the deck", "Before every other card.", listOf("2′", "4′", "5′", "1", "2", "3", "4", "5", "6")),
+    Placement("afterLast", "Together, after the last selected", "All copies, in order, right after the last card you selected.", listOf("1", "2", "3", "4", "5", "2′", "4′", "5′", "6")),
+)
+
+/** Browse changes go in the server's Browse undo/redo history. */
+const val HISTORY = "?history=browse"
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DuplicateDialog(what: String, value: String, onPick: (String) -> Unit, onDismiss: () -> Unit, onConfirm: () -> Unit) = AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text("Duplicate $what") },
+    text = {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            Text("Each copy is a new note with the same fields and tags, in the same deck. Where should the copies go?", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            PLACEMENTS.forEach { p ->
+                val on = p.value == value
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(10.dp)).background(if (on) appColors.brand.copy(alpha = 0.08f) else Color.Transparent).selectable(on, role = Role.RadioButton) { onPick(p.value) }.padding(vertical = 8.dp, horizontal = 4.dp)) {
+                    RadioButton(on, onClick = null, modifier = Modifier.padding(top = 1.dp, end = 10.dp).size(20.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(p.title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Text(p.note, fontSize = 13.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            p.seq.forEach { t ->
+                                val copy = t.endsWith("′")
+                                Text(t, Modifier.clip(RoundedCornerShape(4.dp)).background(if (copy) appColors.brand.copy(alpha = 0.16f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)).widthIn(min = 22.dp).padding(horizontal = 4.dp, vertical = 1.dp),
+                                    fontSize = 11.sp, lineHeight = 15.sp, textAlign = TextAlign.Center, fontWeight = if (copy) FontWeight.SemiBold else FontWeight.Normal, color = if (copy) appColors.brand else appColors.faint)
+                            }
+                        }
+                    }
+                }
+            }
+            Text("Example: duplicating 2, 4 and 5. This sets the # order and the order new cards are studied in. The copies are selected afterwards.", fontSize = 12.sp, lineHeight = 17.sp, color = appColors.faint, modifier = Modifier.padding(top = 10.dp))
+        }
+    },
+    confirmButton = { TextButton(onClick = { onDismiss(); onConfirm() }) { Text("Duplicate") } },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+)
 
 @Composable
 fun Confirm(title: String, text: String, confirm: String, danger: Boolean = false, onDismiss: () -> Unit, onConfirm: () -> Unit) = AlertDialog(

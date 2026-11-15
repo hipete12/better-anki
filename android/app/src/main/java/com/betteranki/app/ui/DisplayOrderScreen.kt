@@ -107,10 +107,10 @@ fun DisplayOrderScreen(app: AppState, cardIds: List<Long>) {
         scope.launch {
             try {
                 if (choice == NEW) {
-                    val r = app.api.post<Changed>("/api/layouts", buildJsonObject { putJsonArray("cardIds") { cardIds.forEach { add(it) } }; put("name", name.trim()); put("qfmt", qfmt.text); put("afmt", afmt.text) })
+                    val r = app.api.post<Changed>("/api/layouts$HISTORY", buildJsonObject { putJsonArray("cardIds") { cardIds.forEach { add(it) } }; put("name", name.trim()); put("qfmt", qfmt.text); put("afmt", afmt.text) })
                     app.notice = "Created “${name.trim()}” for ${r.changed} card${if (r.changed == 1) "" else "s"}"
                 } else {
-                    val r = app.api.post<Changed>("/api/layouts/assign", buildJsonObject { putJsonArray("cardIds") { cardIds.forEach { add(it) } }; put("notetypeId", choice!!) })
+                    val r = app.api.post<Changed>("/api/layouts/assign$HISTORY", buildJsonObject { putJsonArray("cardIds") { cardIds.forEach { add(it) } }; put("notetypeId", choice!!) })
                     app.notice = "${r.changed} card${if (r.changed == 1) " now uses" else "s now use"} “${chosen?.name}”"
                 }
                 app.browse.selected = emptySet()

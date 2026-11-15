@@ -62,7 +62,9 @@ class ApiException(val status: Int, message: String) : Exception(message)
 @Serializable data class LayoutOption(val notetypeId: Long, val name: String, val isDefault: Boolean, val qfmt: String, val afmt: String, val selected: Int)
 @Serializable data class LayoutOptions(val ok: Boolean, val reason: String? = null, val notetype: String = "", val cardType: String = "", val fields: List<String> = emptyList(), val options: List<LayoutOption> = emptyList())
 @Serializable data class Changed(val changed: Int = 0)
-@Serializable data class Duplicated(val notes: Int, val cards: Int)
+@Serializable data class Duplicated(val notes: Int, val cards: Int, val noteIds: List<Long> = emptyList(), val cardIds: List<Long> = emptyList())
+/** Browse undo/redo: the labels of the steps that would be undone and redone. */
+@Serializable data class HistoryStatus(val undo: String? = null, val redo: String? = null, val done: String? = null)
 @Serializable data class DeckTotals(val total: Int, val new: Int, val suspended: Int, val buried: Int, val young: Int, val mature: Int, val learning: Int)
 @Serializable data class DeckLimits(val newLeft: Int, val revLeft: Int)
 @Serializable data class DeckOverview(
