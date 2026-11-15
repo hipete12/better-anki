@@ -50,8 +50,19 @@ class ApiException(val status: Int, message: String) : Exception(message)
 @Serializable data class AddResult(val id: Long, val cards: Int)
 @Serializable data class NoteCard(val id: Long, val ord: Int, val did: Long, val deck: String? = null, val template: String? = null)
 @Serializable data class NoteData(val id: Long, val notetypeId: Long, val notetype: Notetype, val fields: List<String>, val tags: List<String>, val cards: List<NoteCard>)
-@Serializable data class BrowseRow(val id: Long, val nid: Long, val sortField: String, val question: String, val answer: String, val deck: String, val notetype: String, val due: String, val ivl: String, val queue: Int, val flags: Int, val marked: Boolean, val tags: List<String>)
-@Serializable data class BrowseResult(val total: Int, val rows: List<BrowseRow>)
+@Serializable data class BrowseRow(
+    val id: Long, val nid: Long, val sortField: String, val question: String, val answer: String, val deck: String, val notetype: String, val due: String, val ivl: String,
+    val queue: Int, val flags: Int, val marked: Boolean, val tags: List<String>,
+    val order: Int = 0, val state: String = "new", val layout: String = "Default", val template: String = "", val ease: String = "",
+    val reps: Int = 0, val lapses: Int = 0, val created: String = "", val modified: String = "",
+)
+@Serializable data class BrowseResult(val total: Int, val rows: List<BrowseRow>, val ids: List<Long> = emptyList())
+@Serializable data class LayoutRef(val notetypeId: Long, val name: String, val isDefault: Boolean, val cards: Int = 0)
+@Serializable data class LayoutFamily(val notetypeId: Long, val notetype: String, val layouts: List<LayoutRef>)
+@Serializable data class LayoutOption(val notetypeId: Long, val name: String, val isDefault: Boolean, val qfmt: String, val afmt: String, val selected: Int)
+@Serializable data class LayoutOptions(val ok: Boolean, val reason: String? = null, val notetype: String = "", val cardType: String = "", val fields: List<String> = emptyList(), val options: List<LayoutOption> = emptyList())
+@Serializable data class Changed(val changed: Int = 0)
+@Serializable data class Duplicated(val notes: Int, val cards: Int)
 @Serializable data class DeckTotals(val total: Int, val new: Int, val suspended: Int, val buried: Int, val young: Int, val mature: Int, val learning: Int)
 @Serializable data class DeckLimits(val newLeft: Int, val revLeft: Int)
 @Serializable data class DeckOverview(

@@ -329,65 +329,6 @@ private fun DeckRow(node: DeckNode, depth: Int, collapsed: Boolean, onToggle: ()
     }
 }
 
-// ---------------- Browse ----------------
-@Composable
-fun BrowseTab(app: AppState, initialQuery: String? = null) {
-    var query by remember { mutableStateOf(initialQuery ?: "deck:current") }
-    var result by remember { mutableStateOf<BrowseResult?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var submitted by remember { mutableStateOf(initialQuery ?: "deck:current") }
-    LaunchedEffect(submitted, app.changeTick) {
-        try {
-            result = app.api.get<BrowseResult>("/api/browse?q=${URLEncoder.encode(submitted, "UTF-8")}&limit=200&sort=created&desc=1")
-            error = null
-        } catch (e: Exception) {
-            error = e.message
-        }
-    }
-    Column(Modifier.fillMaxSize()) {
-        TabHeader("Browse", result?.let { "${it.total} cards" })
-        OutlinedTextField(
-            query, { query = it },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Search, null) },
-            placeholder = { Text("deck:\"Spanish\" tag:verb is:due") },
-            shape = RoundedCornerShape(10.dp),
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
-            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { submitted = query }),
-        )
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("deck:current", "is:due", "is:new", "added:1", "rated:1", "is:suspended").forEach { q ->
-                Text(
-                    q, fontSize = 12.sp,
-                    modifier = Modifier.clickable { query = q; submitted = q }.padding(horizontal = 4.dp, vertical = 4.dp),
-                    color = if (submitted == q) Brand else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = if (submitted == q) FontWeight.SemiBold else FontWeight.Normal,
-                )
-            }
-        }
-        error?.let { ErrorBox(it, Modifier.padding(16.dp)) }
-        val rows = result?.rows
-        if (rows == null && error == null) Loading()
-        else LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
-            items(rows ?: emptyList(), key = { it.id }) { r ->
-                Panel(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { app.push(Screen.EditNote(r.nid)) }) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (r.flags > 0) Box(Modifier.width(4.dp).height(36.dp).padding(end = 0.dp)) { Canvas(Modifier.fillMaxSize()) { drawRect(FlagColors[r.flags]) } }
-                        Column(Modifier.weight(1f).padding(start = if (r.flags > 0) 10.dp else 0.dp)) {
-                            Text(r.question.ifBlank { r.sortField }, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-                            Text(r.answer, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("${r.deck} · ${r.due}", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (r.queue == -1) Text("Suspended", fontSize = 11.sp, color = Color(0xFFD97706))
-                        else if (r.marked) Text("★", color = Color(0xFFF59E0B))
-                    }
-                }
-            }
-        }
-    }
-}
-
 // ---------------- Stats ----------------
 @Composable
 fun StatsTab(app: AppState) {

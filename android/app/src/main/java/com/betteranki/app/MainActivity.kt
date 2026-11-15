@@ -49,6 +49,8 @@ sealed class Screen {
     data class Study(val id: Long, val offline: Boolean = false) : Screen()
     data object Conflicts : Screen()
     data class EditNote(val nid: Long) : Screen()
+    /** Choose or create the front/back layout for these cards. */
+    data class DisplayOrder(val cardIds: List<Long>) : Screen()
 }
 
 class AppState : ViewModel() {
@@ -57,6 +59,8 @@ class AppState : ViewModel() {
     var loaded by mutableStateOf(false)
     val api = Api("", null)
     val stack = mutableStateListOf<Screen>(Screen.Home())
+    /** Browse's search, sort, scroll and selection, kept while other screens are open. */
+    val browse = com.betteranki.app.ui.BrowseState()
     /** Bumped whenever the server reports a change; screens reload on change. */
     var changeTick by mutableIntStateOf(0)
     /** Whether the server was reachable on the last request. */
@@ -148,6 +152,7 @@ class AppState : ViewModel() {
         offline.discardPending()
         offline.removeAll()
         api.token = null
+        browse.clear()
         creds = null
         stack.clear()
         stack.add(Screen.Home())
@@ -197,6 +202,7 @@ fun Root(app: AppState) {
         is Screen.Study -> StudyScreen(app, top.id, top.offline)
         is Screen.EditNote -> EditNoteScreen(app, top.nid)
         is Screen.Conflicts -> SyncConflictsScreen(app)
+        is Screen.DisplayOrder -> com.betteranki.app.ui.DisplayOrderScreen(app, top.cardIds)
     }
     NoticeToast(app)
 }
