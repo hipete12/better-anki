@@ -207,14 +207,16 @@ fun OfflineDecks(app: AppState, modifier: Modifier = Modifier) {
         Text("Study the decks you downloaded. Your reviews sync when you're back online.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp))
         Panel(Modifier.fillMaxWidth()) {
             Column {
+                DeckHeader()
                 val rows = e.pack.roots.flatMap { e.tree(it) }.distinctBy { it.id }
-                rows.forEachIndexed { i, d ->
-                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                rows.forEach { d ->
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                     val depth = d.name.count { it == ':' } / 2
                     val c = e.counts(d.id, now)
-                    Row(Modifier.fillMaxWidth().clickable { app.push(Screen.Study(d.id, offline = true)) }.padding(start = (16 + depth * 18).dp, end = 16.dp).height(52.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(d.name.substringAfterLast("::"), Modifier.weight(1f), fontSize = 16.sp, fontWeight = if (depth == 0) FontWeight.Medium else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        CountsRow(c.new, c.learn, c.review)
+                    // same columns as the online deck list
+                    Row(Modifier.fillMaxWidth().clickable { app.push(Screen.Study(d.id, offline = true)) }.padding(start = 6.dp + CHEVRON + (depth * 16).dp, end = 12.dp).height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(d.name.substringAfterLast("::"), Modifier.weight(1f), fontSize = 15.sp, fontWeight = if (depth == 0) FontWeight.Medium else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        DeckCountColumns(c.new, c.learn, c.review)
                     }
                 }
             }

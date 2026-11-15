@@ -127,7 +127,8 @@ fun <T> Segmented(options: List<T>, selected: T, label: @Composable (T) -> Unit,
                 onClick = { onSelect(o) },
                 modifier = Modifier.weight(1f).height(36.dp).semantics { this.selected = on; role = Role.Tab },
                 shape = RoundedCornerShape(8.dp),
-                color = if (on) MaterialTheme.colorScheme.surface else Color.Transparent,
+                // dark: a step lighter than the track, so the choice stands out
+                color = if (!on) Color.Transparent else if (LocalDark.current) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.surface,
                 shadowElevation = if (on) 1.dp else 0.dp,
                 contentColor = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
             ) { Box(contentAlignment = Alignment.Center) { label(o) } }

@@ -166,7 +166,7 @@ fun DecksTab(app: AppState) {
         }
     }
     fun act(f: suspend () -> Unit) = scope.launch { try { f(); load() } catch (e: Exception) { app.notice = e.message } }
-    LaunchedEffect(app.changeTick) { load() }
+    LaunchedEffect(app.changeTick, app.online) { load() } // also when the server is reachable again
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = { scope.launch { refreshing = true; load(); refreshing = false } }) {
         LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
@@ -177,11 +177,13 @@ fun DecksTab(app: AppState) {
             // cards per state over time (new cards left out), like the web app
             home?.let { h -> item { CardTrend(h.trend, Modifier.padding(start = 20.dp, end = 16.dp, bottom = 20.dp), chartHeight = 132.dp) } }
             item { OfflineBanner(app, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) }
-            if (error != null && !app.online && app.offline.engine != null) {
+            // offline: the downloaded decks replace the (stale) online list
+            val offlineList = error != null && !app.online && app.offline.engine != null
+            if (offlineList) {
                 item { OfflineDecks(app, Modifier.padding(horizontal = 16.dp)) }
             } else error?.let { item { ErrorBox(it, Modifier.padding(16.dp)) } }
             if (data == null && error == null) item { Box(Modifier.height(300.dp)) { Loading() } }
-            data?.let { d ->
+            if (!offlineList) data?.let { d ->
                 item {
                     Panel(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
                         Column {
@@ -283,16 +285,25 @@ private fun flatten(nodes: List<DeckNode>): List<DeckNode> = nodes.flatMap { lis
 private fun visible(nodes: List<DeckNode>, collapsed: Set<Long>, depth: Int = 0): List<Pair<DeckNode, Int>> =
     nodes.flatMap { n -> listOf(n to depth) + if (n.id in collapsed) emptyList() else visible(n.children, collapsed, depth + 1) }
 
-private val CHEVRON = 30.dp
-private val COUNT_W = 46.dp
+val CHEVRON = 30.dp
+val COUNT_W = 46.dp
 
 /** Column names, lined up with the deck names and the counts under them (like the web app's table header). */
 @Composable
-private fun DeckHeader() {
+fun DeckHeader() {
     Row(Modifier.fillMaxWidth().padding(start = 6.dp + CHEVRON, end = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         val st = Modifier
         Text("Deck", st.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         listOf("New", "Learn", "Due").forEach { Text(it, Modifier.width(COUNT_W), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.End) }
+    }
+}
+
+/** New / learn / due counts in the deck list's fixed columns, under [DeckHeader]. */
+@Composable
+fun DeckCountColumns(new: Int, learn: Int, review: Int) {
+    val ac = appColors
+    listOf(new to ac.new, learn to ac.learn, review to ac.due).forEach { (n, c) ->
+        Text("$n", Modifier.width(COUNT_W), color = if (n > 0) c else ac.faint, fontWeight = if (n > 0) FontWeight.SemiBold else FontWeight.Normal, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.End)
     }
 }
 
@@ -315,10 +326,7 @@ private fun DeckRow(node: DeckNode, depth: Int, collapsed: Boolean, onToggle: ()
                 Text(node.shortName, Modifier.weight(1f, fill = false), fontWeight = if (depth == 0) FontWeight.Medium else FontWeight.Normal, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontStyle = if (node.kind == 1) FontStyle.Italic else FontStyle.Normal)
                 Text(if (node.kind == 1) "filtered" else "${node.total}", Modifier.padding(start = 6.dp), fontSize = 12.sp, color = if (node.kind == 1) appColors.brand else appColors.faint, maxLines = 1)
             }
-            val ac = appColors
-            listOf(node.counts.new to ac.new, node.counts.learn to ac.learn, node.counts.review to ac.due).forEach { (n, c) ->
-                Text("$n", Modifier.width(COUNT_W), color = if (n > 0) c else ac.faint, fontWeight = if (n > 0) FontWeight.SemiBold else FontWeight.Normal, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.End)
-            }
+            DeckCountColumns(node.counts.new, node.counts.learn, node.counts.review)
         }
         DropdownMenu(open, { open = false }, offset = androidx.compose.ui.unit.DpOffset((40 + depth * 16).dp, (-8).dp)) {
             menu.forEach { m ->
@@ -339,7 +347,7 @@ private fun DeckRow(node: DeckNode, depth: Int, collapsed: Boolean, onToggle: ()
 fun StatsTab(app: AppState) {
     var stats by remember { mutableStateOf<Stats?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(app.changeTick) {
+    LaunchedEffect(app.changeTick, app.online) {
         try { stats = app.api.get<Stats>("/api/stats?days=30"); error = null } catch (e: Exception) { error = e.message }
     }
     val dark = LocalDark.current

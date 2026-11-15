@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -148,9 +150,9 @@ fun ConnectScreen(app: AppState) {
                             Text("Create your account", fontWeight = FontWeight.SemiBold)
                             Text("Your password protects the key that encrypts your collection. It can't be recovered if forgotten.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else if (h.locked) Text("Server is locked. Signing in unlocks your encrypted collection.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        OutlinedTextField(username, { username = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                        OutlinedTextField(password, { password = it }, label = { Text("Password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                        if (h.setupRequired) OutlinedTextField(password2, { password2 = it }, label = { Text("Confirm password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                        OutlinedTextField(username, { username = it }, label = { Text("Username") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next, autoCorrectEnabled = false), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                        OutlinedTextField(password, { password = it }, label = { Text("Password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = if (h.setupRequired) ImeAction.Next else ImeAction.Done), keyboardActions = KeyboardActions(onDone = { if (!busy) submit() }), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                        if (h.setupRequired) OutlinedTextField(password2, { password2 = it }, label = { Text("Confirm password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = if (h.setupNeedsCode) ImeAction.Next else ImeAction.Done), keyboardActions = KeyboardActions(onDone = { if (!busy) submit() }), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                         if (h.setupRequired && h.setupNeedsCode) OutlinedTextField(setupCode, { setupCode = it.uppercase() }, label = { Text("Setup code (from server console)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
                     }
                     error?.let { ErrorBox(it) }

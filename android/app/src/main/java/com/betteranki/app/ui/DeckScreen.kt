@@ -87,7 +87,7 @@ fun DeckOverviewScreen(app: AppState, id: Long) {
     val scope = rememberCoroutineScope()
     suspend fun load() { try { data = app.api.get("/api/decks/$id"); error = null } catch (e: Exception) { error = e.message } }
     fun act(f: suspend () -> Unit) = scope.launch { try { f(); load() } catch (e: Exception) { error = e.message } }
-    LaunchedEffect(id, app.changeTick) { load() }
+    LaunchedEffect(id, app.changeTick, app.online) { load() }
     val offlineOnly = data == null && error != null && !app.online && app.offline.isAvailable(id)
     val d = data
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding()) {

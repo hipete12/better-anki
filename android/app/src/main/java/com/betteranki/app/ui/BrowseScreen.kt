@@ -242,7 +242,7 @@ fun BrowseTab(app: AppState, initialQuery: String? = null) {
         // a search handed over by another screen (e.g. a deck's Browse button): use it once
         if (initialQuery != null) { b.search(initialQuery); app.replaceTop(Screen.Home(2)) }
     }
-    LaunchedEffect(b.query, b.sort, b.desc, app.changeTick) { b.reload(app) }
+    LaunchedEffect(b.query, b.sort, b.desc, app.changeTick, app.online) { b.reload(app) }
     LaunchedEffect(b.list) {
         snapshotFlow { b.list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { if (it > b.rows.size - 30) b.more(app) }
     }
