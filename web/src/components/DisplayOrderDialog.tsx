@@ -66,10 +66,10 @@ export default function DisplayOrderDialog({ cardIds, onClose, onDone }: { cardI
     setBusy(true);
     try {
       if (choice === NEW) {
-        const r = await api.post<{ changed: number }>("/api/layouts", { cardIds, ...draft });
+        const r = await api.post<{ changed: number }>("/api/layouts?history=browse", { cardIds, ...draft });
         toast(`Created "${draft.name.trim()}" for ${r.changed} card${r.changed === 1 ? "" : "s"}`, "success");
       } else {
-        const r = await api.post<{ changed: number }>("/api/layouts/assign", { cardIds, notetypeId: choice });
+        const r = await api.post<{ changed: number }>("/api/layouts/assign?history=browse", { cardIds, notetypeId: choice });
         toast(`${r.changed} card${r.changed === 1 ? "" : "s"} now use "${chosen?.name}"`, "success");
       }
       onDone();
@@ -155,7 +155,7 @@ export default function DisplayOrderDialog({ cardIds, onClose, onDone }: { cardI
   );
 }
 
-function LayoutRow({ checked, onSelect, title, note, children }: { checked: boolean; onSelect: () => void; title: React.ReactNode; note?: string; children: React.ReactNode }) {
+export function LayoutRow({ checked, onSelect, title, note, children }: { checked: boolean; onSelect: () => void; title: React.ReactNode; note?: string; children: React.ReactNode }) {
   return (
     <button type="button" role="radio" aria-checked={checked} onClick={onSelect} className={cx("flex w-full items-start gap-3 px-4 py-3 text-left transition-colors first:rounded-t-xl last:rounded-b-xl", checked ? "bg-brand-500/8" : "hover:bg-panel-2/60")}>
       <span className={cx("mt-1 grid size-4 shrink-0 place-items-center rounded-full border", checked ? "border-brand-600 dark:border-brand-400" : "border-strong")}>

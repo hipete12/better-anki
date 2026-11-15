@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Search, Tag, Flag, Copy, LayoutTemplate, ChevronDown, ChevronUp, MoreHorizontal, PauseCircle, Trash2, FolderInput, Tags, CalendarClock, RotateCcw, ListOrdered, Replace, Download, Filter, Info, Star, SlidersHorizontal, X, Eye, EyeOff, PanelLeft } from "lucide-react";
+import { Search, Tag, Flag, Copy, LayoutTemplate, Undo2, Redo2, ChevronDown, ChevronUp, MoreHorizontal, PauseCircle, Trash2, FolderInput, Tags, CalendarClock, RotateCcw, ListOrdered, Replace, Download, Filter, Info, Star, SlidersHorizontal, X, Eye, EyeOff, PanelLeft } from "lucide-react";
 import { api, type BrowseRow, type CardState, type NoteData } from "../lib/api";
 import { useApi, useLocalStorage, useIsDark } from "../lib/hooks";
 import { Button, cx, Field, IconButton, Input, Loading, Menu, Modal, Select, Switch, Tabs, useDialogs, useToast, Badge } from "../components/ui";
@@ -9,7 +9,7 @@ import CardFrame from "../components/CardFrame";
 import CardInfoDialog from "../components/CardInfoDialog";
 import ExportDialog from "../components/ExportDialog";
 import FilteredDeckDialog from "../components/FilteredDeckDialog";
-import DisplayOrderDialog from "../components/DisplayOrderDialog";
+import DisplayOrderDialog, { LayoutRow } from "../components/DisplayOrderDialog";
 
 const COLUMNS: { key: keyof BrowseRow; label: string; title?: string; sort?: string; cls?: string; align?: "center" | "right"; notes?: boolean; cards?: boolean }[] = [
   { key: "order", label: "#", title: "Position in the order the deck came with", sort: "order", cls: "w-14 text-faint tnum", align: "right" },
@@ -50,6 +50,17 @@ const STATES: Record<CardState, { label: string; cls: string }> = {
   marked: { label: "Marked", cls: "bg-violet-600 dark:bg-violet-400" },
   leech: { label: "Leech", cls: "bg-orange-600 dark:bg-orange-400" },
 };
+/** Browse changes go in the Browse undo/redo history (server history.ts). */
+const H = "?history=browse";
+type History = { undo: string | null; redo: string | null };
+type Placement = "end" | "after" | "start" | "afterLast";
+/** Duplicate placements, shown with the example of duplicating 2, 4 and 5 out of 1–6. */
+const PLACEMENTS: { value: Placement; title: string; note: string; seq: string[] }[] = [
+  { value: "end", title: "End of the deck", note: "After every other card.", seq: ["1", "2", "3", "4", "5", "6", "2′", "4′", "5′"] },
+  { value: "after", title: "After each original", note: "Each copy goes right after the card it came from.", seq: ["1", "2", "2′", "3", "4", "4′", "5", "5′", "6"] },
+  { value: "start", title: "Start of the deck", note: "Before every other card.", seq: ["2′", "4′", "5′", "1", "2", "3", "4", "5", "6"] },
+  { value: "afterLast", title: "Together, after the last selected", note: "All copies, in order, right after the last card you selected.", seq: ["1", "2", "3", "4", "5", "2′", "4′", "5′", "6"] },
+];
 const FLAG_COLORS = ["", "#ef4444", "#f97316", "#22c55e", "#3b82f6", "#ec4899", "#14b8a6", "#a855f7"];
 const FLAG_NAMES = ["No flag", "Red", "Orange", "Green", "Blue", "Pink", "Turquoise", "Purple"];
 
@@ -89,11 +100,14 @@ export default function Browse() {
   const seq = useRef(0);
   const dialogs = useDialogs();
   const toast = useToast();
+  const [history, setHistory] = useState<History>({ undo: null, redo: null });
+  const refreshHistory = useCallback(() => api.get<History>("/api/history").then(setHistory).catch(() => {}), []);
 
   const search = useCallback(
     async (offset = 0) => {
       const my = ++seq.current;
       setLoading(true);
+      if (!offset) refreshHistory();
       try {
         const r = await api.get<{ total: number; rows: BrowseRow[]; ids: number[] }>(`/api/browse?${new URLSearchParams({ q: query, mode, sort: sort.col, desc: sort.desc ? "1" : "0", offset: String(offset), limit: "150" })}`);
         if (my !== seq.current) return;
@@ -101,13 +115,18 @@ export default function Browse() {
         setTotal(r.total);
         setIds(r.ids);
         setRows((old) => (offset ? [...old, ...r.rows] : r.rows));
+        if (!offset) {
+          // drop selected rows that are gone (deleted, or undone)
+          const all = new Set(r.ids);
+          setSelected((sel) => ([...sel].every((id) => all.has(id)) ? sel : new Set([...sel].filter((id) => all.has(id)))));
+        }
       } catch (e) {
         if (my === seq.current) setError((e as Error).message);
       } finally {
         if (my === seq.current) setLoading(false);
       }
     },
-    [query, mode, sort],
+    [query, mode, sort, refreshHistory],
   );
 
   useEffect(() => {
@@ -131,11 +150,24 @@ export default function Browse() {
   };
   const selNoteIds = () => (mode === "notes" ? selIds : [...new Set(selRows.map((r) => r.nid))]);
 
+  /** Undo or redo the last Browse change. */
+  const step = async (dir: "undo" | "redo") => {
+    try {
+      const r = await api.post<History & { done: string | null }>(`/api/history/${dir}`);
+      setHistory({ undo: r.undo, redo: r.redo });
+      if (r.done) toast(`${dir === "undo" ? "Undid" : "Redid"} “${r.done}”`, "info");
+      search(0);
+    } catch (e) {
+      toast((e as Error).message, "error");
+      refreshHistory();
+    }
+  };
+
   const cardAct = async (body: Record<string, unknown>, msg: string) => {
     try {
       const cardIds = await selCardIds();
-      await api.post("/api/cards/actions", { ...body, cardIds });
-      toast(msg, "success", { label: "Undo", onClick: () => api.post("/api/undo").then(() => search(0)) });
+      await api.post("/api/cards/actions" + H, { ...body, cardIds });
+      toast(msg, "success", body.action === "reposition" ? undefined : { label: "Undo", onClick: () => step("undo") });
       search(0);
     } catch (e) {
       toast((e as Error).message, "error");
@@ -159,7 +191,10 @@ export default function Browse() {
     const h = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
-      if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z" || e.key === "y")) {
+        e.preventDefault();
+        step(e.key === "y" || e.shiftKey ? "redo" : "undo");
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "a") {
         e.preventDefault();
         setSelected(new Set(ids));
       } else if ((e.ctrlKey || e.metaKey) && e.key === "f") {
@@ -184,7 +219,7 @@ export default function Browse() {
   const removeNotes = async () => {
     const nids = selNoteIds();
     if (!(await dialogs.confirm({ title: `Delete ${nids.length} note${nids.length === 1 ? "" : "s"}?`, body: "All cards of these notes will be deleted.", confirm: "Delete", danger: true }))) return;
-    await api.post("/api/notes/delete", { noteIds: nids });
+    await api.post("/api/notes/delete" + H, { noteIds: nids });
     toast(`Deleted ${nids.length} notes`, "success");
     search(0);
   };
@@ -193,13 +228,16 @@ export default function Browse() {
   const anySuspended = selRows.some((r) => r.queue === -1);
   const [layoutCards, setLayoutCards] = useState<number[] | null>(null);
   const openDisplayOrder = async () => setLayoutCards(await selCardIds());
-  const duplicate = async () => {
-    const n = selIds.length;
-    const what = mode === "notes" ? `note${n === 1 ? "" : "s"}` : `card${n === 1 ? "" : "s"}`;
-    if (n > 1 && !(await dialogs.confirm({ title: `Duplicate ${n} ${what}?`, body: "Each copy is a new note created now, with the same fields and tags, in the same deck. Copies start as new cards.", confirm: "Duplicate" }))) return;
+  const [dupOpen, setDupOpen] = useState(false);
+  const [placement, setPlacement] = useLocalStorage<Placement>("ba.browse.duplicatePlacement", "end");
+  const duplicate = async (place: Placement) => {
+    setDupOpen(false);
     try {
-      const r = await api.post<{ notes: number; cards: number }>("/api/notes/duplicate", mode === "notes" ? { noteIds: selIds } : { cardIds: selIds });
-      toast(`Duplicated ${r.notes} note${r.notes === 1 ? "" : "s"} (${r.cards} card${r.cards === 1 ? "" : "s"})`, "success");
+      const r = await api.post<{ notes: number; cards: number; noteIds: number[]; cardIds: number[] }>("/api/notes/duplicate" + H, { ...(mode === "notes" ? { noteIds: selIds } : { cardIds: selIds }), place });
+      toast(`Duplicated ${r.notes} note${r.notes === 1 ? "" : "s"} (${r.cards} card${r.cards === 1 ? "" : "s"}). The copies are selected.`, "success", { label: "Undo", onClick: () => step("undo") });
+      // select the copies, so the next action applies to them
+      setSelected(new Set(mode === "notes" ? r.noteIds : r.cardIds));
+      setAnchor(null);
       search(0);
     } catch (e) {
       toast((e as Error).message, "error");
@@ -260,7 +298,7 @@ export default function Browse() {
                 <Button size="sm" variant="ghost" onClick={openDisplayOrder} title="Display order">
                   <LayoutTemplate className="size-4" /> <span className="hidden @3xl:inline">Display order</span>
                 </Button>
-                <Button size="sm" variant="ghost" onClick={duplicate} title="Duplicate">
+                <Button size="sm" variant="ghost" onClick={() => setDupOpen(true)} title="Duplicate">
                   <Copy className="size-4" /> <span className="hidden @3xl:inline">Duplicate</span>
                 </Button>
               </>
@@ -272,11 +310,14 @@ export default function Browse() {
                 </IconButton>
               )}
               items={[
+                { label: history.undo ? `Undo ${history.undo}` : "Undo", icon: <Undo2 />, shortcut: "Ctrl+Z", disabled: !history.undo, onClick: () => step("undo") },
+                { label: history.redo ? `Redo ${history.redo}` : "Redo", icon: <Redo2 />, shortcut: "Ctrl+Shift+Z", disabled: !history.redo, onClick: () => step("redo") },
+                { divider: true, label: "" },
                 { label: "Select all", shortcut: "Ctrl+A", onClick: () => setSelected(new Set(ids)) },
                 { divider: true, label: "" },
                 { label: "Add tags", icon: <Tags />, disabled: !selected.size, onClick: () => setModal("tags-add") },
                 { label: "Remove tags", icon: <Tag />, disabled: !selected.size, onClick: () => setModal("tags-remove") },
-                { label: "Toggle mark", icon: <Star />, disabled: !selected.size, onClick: () => api.post("/api/notes/tags", selRows.every((r) => r.marked) ? { noteIds: selNoteIds(), remove: ["marked"] } : { noteIds: selNoteIds(), add: ["marked"] }).then(() => search(0)) },
+                { label: "Toggle mark", icon: <Star />, disabled: !selected.size, onClick: () => api.post("/api/notes/tags" + H, selRows.every((r) => r.marked) ? { noteIds: selNoteIds(), remove: ["marked"] } : { noteIds: selNoteIds(), add: ["marked"] }).then(() => search(0)) },
                 { label: "Bury / unbury", icon: <EyeOff />, disabled: !selected.size, onClick: () => cardAct({ action: selRows.some((r) => r.queue === -2 || r.queue === -3) ? "unbury" : "bury" }, "Updated") },
                 { label: "Set due date", icon: <CalendarClock />, disabled: !selected.size, onClick: () => setModal("due") },
                 { label: "Reset (forget)", icon: <RotateCcw />, disabled: !selected.size, onClick: () => cardAct({ action: "forget" }, "Reset to new") },
@@ -366,6 +407,7 @@ export default function Browse() {
       <Modal open={modal === "editor" && !!single} onClose={() => setModal(null)} title="Edit" wide>
         {single && <SideEditor row={single} mode={mode} onSaved={() => search(0)} compact />}
       </Modal>
+      {dupOpen && <DuplicateDialog count={selIds.length} what={mode === "notes" ? "note" : "card"} value={placement} onChange={setPlacement} onClose={() => setDupOpen(false)} onOk={() => duplicate(placement)} />}
       {layoutCards && <DisplayOrderDialog cardIds={layoutCards} onClose={() => setLayoutCards(null)} onDone={() => search(0)} />}
       {modal === "deck" && <ChangeDeckDialog onClose={() => setModal(null)} onPick={(deckId) => cardAct({ action: "setDeck", deckId }, "Moved")} />}
       {(modal === "tags-add" || modal === "tags-remove") && (
@@ -373,7 +415,7 @@ export default function Browse() {
           remove={modal === "tags-remove"}
           onClose={() => setModal(null)}
           onApply={async (tags) => {
-            await api.post("/api/notes/tags", modal === "tags-add" ? { noteIds: selNoteIds(), add: tags } : { noteIds: selNoteIds(), remove: tags });
+            await api.post("/api/notes/tags" + H, modal === "tags-add" ? { noteIds: selNoteIds(), add: tags } : { noteIds: selNoteIds(), remove: tags });
             toast("Tags updated", "success");
             search(0);
           }}
@@ -510,7 +552,7 @@ function SideEditor({ row, mode, onSaved, compact }: { row: BrowseRow; mode: str
   const save = useCallback(async () => {
     if (!note || !dirty) return;
     try {
-      await api.put(`/api/notes/${note.id}`, { fields, tags });
+      await api.put(`/api/notes/${note.id}${H}`, { fields, tags });
       setDirty(false);
       onSaved();
       toast("Saved", "success");
@@ -651,7 +693,7 @@ function FindReplaceDialog({ onClose, noteIds, onDone }: { onClose: () => void; 
   const toast = useToast();
   const run = async () => {
     try {
-      const r = await api.post<{ changed: number }>("/api/notes/find-replace", { noteIds, find, replace, regex, matchCase, field: field || null });
+      const r = await api.post<{ changed: number }>("/api/notes/find-replace" + H, { noteIds, find, replace, regex, matchCase, field: field || null });
       toast(`${r.changed} notes updated`, "success");
       onDone();
       onClose();
@@ -691,3 +733,42 @@ function FindReplaceDialog({ onClose, noteIds, onDone }: { onClose: () => void; 
 }
 
 void X;
+
+function DuplicateDialog({ count, what, value, onChange, onClose, onOk }: { count: number; what: string; value: Placement; onChange: (p: Placement) => void; onClose: () => void; onOk: () => void }) {
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Duplicate ${count === 1 ? `this ${what}` : `${count.toLocaleString()} ${what}s`}`}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={onOk} autoFocus>
+            Duplicate
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-[13px] text-muted">Each copy is a new note with the same fields and tags, in the same deck, starting as new cards. Where should the copies go?</p>
+        <div className="rounded-xl border border-app divide-y divide-[var(--border)]" role="radiogroup" aria-label="Where the copies go">
+          {PLACEMENTS.map((p) => (
+            <LayoutRow key={p.value} checked={value === p.value} onSelect={() => onChange(p.value)} title={p.title}>
+              <span className="block text-xs text-muted">{p.note}</span>
+              <span className="mt-1.5 flex flex-wrap gap-1" aria-hidden>
+                {p.seq.map((t, i) => (
+                  <span key={i} className={cx("min-w-6 rounded px-1 py-px text-center text-[11px] tnum", t.endsWith("′") ? "bg-brand-500/15 text-brand-700 dark:text-brand-300 font-semibold" : "bg-panel-2 text-faint")}>
+                    {t}
+                  </span>
+                ))}
+              </span>
+            </LayoutRow>
+          ))}
+        </div>
+        <p className="text-xs text-faint">Example: duplicating 2, 4 and 5. This sets the # order and the order new cards are studied in. The copies are selected afterwards.</p>
+      </div>
+    </Modal>
+  );
+}
