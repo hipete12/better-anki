@@ -5,6 +5,7 @@ import type { NoteRow } from "./types";
 import { cardOrdsForNote } from "./render/template";
 import { fieldChecksum, joinFields, splitFields, nowSecs, stripHtml } from "./util";
 import { clearUndo } from "./sched/queue";
+import { clearHistory } from "./history";
 
 export function checkDatabase(col: Collection) {
   const report: string[] = [];
@@ -74,6 +75,7 @@ export function checkDatabase(col: Collection) {
   });
   col.db.exec("PRAGMA optimize; VACUUM; ANALYZE;");
   clearUndo();
+  clearHistory();
   if (!report.length) report.push("Database rebuilt and optimized. No problems found.");
   col.emit("checkDatabase");
   return { report };
@@ -99,16 +101,23 @@ export function findEmptyCards(col: Collection) {
   return out;
 }
 
+/** Media files a note's fields refer to (images, audio, video, [sound:] tags). */
+export function fieldMediaRefs(flds: string, into = new Set<string>()): Set<string> {
+  for (const m of flds.matchAll(/<(?:img|audio|video|source|object)\b[^>]*?\b(?:src|data)=(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) into.add(safeDecode(m[1] ?? m[2] ?? m[3]));
+  for (const m of flds.matchAll(/\[sound:([^\]]+)\]/g)) into.add(m[1]);
+  return into;
+}
+/** Media files a note type's styling and templates refer to (Anki's "_file" convention). */
+export function notetypeMediaRefs(nt: { css: string; templates: { qfmt: string; afmt: string }[] }, into = new Set<string>()): Set<string> {
+  const src = nt.css + nt.templates.map((t) => t.qfmt + t.afmt).join("");
+  for (const m of src.matchAll(/["'(](_[^"')]+)["')]/g)) into.add(m[1]);
+  return into;
+}
+
 export function checkMedia(col: Collection) {
   const referenced = new Set<string>();
-  for (const r of col.db.query<{ flds: string }, []>("SELECT flds FROM notes").all()) {
-    for (const m of r.flds.matchAll(/<(?:img|audio|video|source|object)\b[^>]*?\b(?:src|data)=(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi)) referenced.add(safeDecode(m[1] ?? m[2] ?? m[3]));
-    for (const m of r.flds.matchAll(/\[sound:([^\]]+)\]/g)) referenced.add(m[1]);
-  }
-  for (const nt of col.notetypes()) {
-    const src = nt.css + nt.templates.map((t) => t.qfmt + t.afmt).join("");
-    for (const m of src.matchAll(/["'(](_[^"')]+)["')]/g)) referenced.add(m[1]);
-  }
+  for (const r of col.db.query<{ flds: string }, []>("SELECT flds FROM notes").all()) fieldMediaRefs(r.flds, referenced);
+  for (const nt of col.notetypes()) notetypeMediaRefs(nt, referenced);
   const known = col.db.query<{ fname: string }, []>("SELECT fname FROM media").all().map((r) => r.fname);
   const present = known.filter((f) => col.media.has(f));
   const presentSet = new Set(present);

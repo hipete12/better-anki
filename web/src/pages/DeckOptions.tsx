@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Plus, Copy, Pencil, Trash2, Wand2, Save, Info } from "lucide-react";
 import { api, type DeckConfig, type CollectionConfig } from "../lib/api";
 import { useApi } from "../lib/hooks";
-import { Button, Card, Field, Input, Loading, Menu, Select, Switch, useDialogs, useToast, Badge } from "../components/ui";
+import { Button, Card, Field, Input, Loading, Menu, Select, Switch, Tabs, useDialogs, useToast, Badge } from "../components/ui";
 
 const NEW_GATHER = [
   [0, "Deck"],
@@ -59,12 +59,19 @@ export default function DeckOptions() {
   const [optimizing, setOptimizing] = useState(false);
   const [optResult, setOptResult] = useState<string | null>(null);
   const [reschedule, setReschedule] = useState(false);
+  // the deck's own daily limits (override the preset's for this deck only)
+  const [own, setOwn] = useState<{ on: boolean; had: boolean; newLimit: number | null; reviewLimit: number | null } | null>(null);
   const toast = useToast();
   const dialogs = useDialogs();
 
   useEffect(() => {
     if (deck.data && !confId) setConfId(deck.data.deck.configId);
-  }, [deck.data, confId]);
+    if (deck.data && !own) {
+      const { newLimit = null, reviewLimit = null } = deck.data.deck;
+      const had = newLimit != null || reviewLimit != null;
+      setOwn({ on: had, had, newLimit, reviewLimit });
+    }
+  }, [deck.data, confId, own]);
   useEffect(() => {
     const p = presets.data?.find((x) => x.id === confId);
     if (p) {
@@ -76,7 +83,7 @@ export default function DeckOptions() {
     }
   }, [confId, presets.data]);
 
-  if (!deck.data || !presets.data || !c || !col.data) return <Loading />;
+  if (!deck.data || !presets.data || !c || !col.data || !own) return <Loading />;
   const set = <K extends keyof DeckConfig>(k: K, v: DeckConfig[K]) => setC({ ...c, [k]: v });
   const fsrs = col.data.fsrs;
 
@@ -89,7 +96,11 @@ export default function DeckOptions() {
     setBusy(true);
     try {
       await api.put(`/api/deck-configs/${c.id}`, { ...c, learnSteps: ls, relearnSteps: rs, fsrsParams: fp, reschedule });
-      if (deck.data!.deck.configId !== c.id) await api.patch(`/api/decks/${deckId}`, { configId: c.id });
+      const patch: Record<string, unknown> = {};
+      if (deck.data!.deck.configId !== c.id) patch.configId = c.id;
+      if (own.on) Object.assign(patch, { newLimit: own.newLimit ?? c.newPerDay, reviewLimit: own.reviewLimit ?? c.reviewsPerDay });
+      else if (own.had) Object.assign(patch, { newLimit: null, reviewLimit: null });
+      if (Object.keys(patch).length) await api.patch(`/api/decks/${deckId}`, patch);
       toast("Options saved", "success");
       navigate(-1);
     } catch (e) {
@@ -196,10 +207,37 @@ export default function DeckOptions() {
 
       <div className="space-y-4">
         <Section title="Daily limits">
-          <Grid>
-            <Field label="New cards/day">{num("newPerDay")}</Field>
-            <Field label="Maximum reviews/day">{num("reviewsPerDay")}</Field>
-          </Grid>
+          <Tabs
+            value={own.on ? "deck" : "preset"}
+            onChange={(v) => setOwn({ ...own, on: v === "deck" })}
+            tabs={[
+              { value: "preset", label: "Preset" },
+              { value: "deck", label: "This deck" },
+            ]}
+          />
+          {own.on ? (
+            <>
+              <Grid>
+                <Field label="New cards/day">
+                  <Input type="number" value={own.newLimit ?? c.newPerDay} onChange={(e) => setOwn({ ...own, newLimit: +e.target.value })} />
+                </Field>
+                <Field label="Maximum reviews/day">
+                  <Input type="number" value={own.reviewLimit ?? c.reviewsPerDay} onChange={(e) => setOwn({ ...own, reviewLimit: +e.target.value })} />
+                </Field>
+              </Grid>
+              <p className="text-xs text-muted -mt-1">
+                Only {deck.data.deck.name.split("::").pop()} uses these. The preset's limits are {c.newPerDay} new and {c.reviewsPerDay} reviews a day.
+              </p>
+            </>
+          ) : (
+            <>
+              <Grid>
+                <Field label="New cards/day">{num("newPerDay")}</Field>
+                <Field label="Maximum reviews/day">{num("reviewsPerDay")}</Field>
+              </Grid>
+              {own.had && <p className="text-xs text-muted -mt-1">Saving removes this deck's own limits.</p>}
+            </>
+          )}
           <Switch checked={c.newIgnoreReviewLimit} onChange={(v) => set("newIgnoreReviewLimit", v)} label="New cards ignore review limit" />
         </Section>
 

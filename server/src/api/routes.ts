@@ -1,5 +1,5 @@
 import type { Collection } from "../collection";
-import { Router, num, type Ctx } from "./router";
+import { Router, num, type Ctx, type Handler } from "./router";
 import type { CardRow, DeckConfig, FilteredConfig, Notetype } from "../types";
 import { CardType, Queue } from "../types";
 import { assert, HttpError, nowSecs, splitFields, stripHtml, parseTags, dayNumber, sha1Hex, intervalLabel, escapeHtml, joinFields } from "../util";
@@ -18,11 +18,14 @@ import { trainingSequences, recomputeMemory } from "../sched/memory";
 import { evaluate, type OptimizeResult } from "../sched/optimizer";
 import { FSRS, FSRS6_DEFAULT_PARAMS } from "../sched/fsrs";
 import { STOCK_NOTETYPES } from "../stock";
+import { layoutOptions, assignLayout, createLayout, changeNotetype, duplicateNotes, layoutNames, layoutFamilies } from "../layouts";
+import { buildPack, syncOffline, type SyncRequest } from "../offline";
+import { recordStep, undoStep, redoStep, historyStatus } from "../history";
 import { existsSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0-beta.5";
 
 export interface ServerOptions {
   /** Issues short-lived, HMAC-signed media URL tokens bound to a session. */
@@ -43,7 +46,21 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
   const r = new Router();
   const csvUploads = new Map<string, { text: string; created: number }>();
 
-  const renderFor = (c: CardRow, ctx: Ctx, extra: { night?: boolean; platform?: string; typed?: string | null } = {}) => {
+  /**
+   * A Browse action: requests sent with ?history=browse become one step in the Browse undo/redo history
+   * (history.ts). The body is read first so the action's database work runs in one go. A null label skips it.
+   */
+  const browseAction =
+    (label: string | ((b: any) => string | null), h: Handler): Handler =>
+    async (ctx) => {
+      if (ctx.query.get("history") !== "browse") return h(ctx);
+      const body = await ctx.json();
+      const inner: Ctx = { ...ctx, json: async () => body };
+      const name = typeof label === "string" ? label : label(body);
+      return name ? recordStep(col, name, () => h(inner)) : h(inner);
+    };
+
+  const renderFor = (c: CardRow, ctx: Ctx, extra: { night?: boolean; platform?: string; typed?: string | null; nightTokens?: boolean } = {}) => {
     const note = col.note(c.nid)!;
     const nt = col.notetype(note.ntid)!;
     const conf = col.configForCard(c);
@@ -58,8 +75,8 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
     }
     const autoplay = !conf.disableAutoplay;
     return {
-      question: buildCardPage({ html: rendered.question, css: rendered.css, ord: c.ord, night, mediaBase: base, autoplay, side: "question", platform }),
-      answer: buildCardPage({ html: answerHtml, css: rendered.css, ord: c.ord, night, mediaBase: base, autoplay, side: "answer", platform, questionHtml: rendered.question }),
+      question: buildCardPage({ html: rendered.question, css: rendered.css, ord: c.ord, night, mediaBase: base, autoplay, side: "question", platform, nightTokens: extra.nightTokens }),
+      answer: buildCardPage({ html: answerHtml, css: rendered.css, ord: c.ord, night, mediaBase: base, autoplay, side: "answer", platform, questionHtml: rendered.question, nightTokens: extra.nightTokens }),
       hasTypeAnswer: !!rendered.typeAnswer,
       questionText: stripHtml(rendered.question.replace(/<style[\s\S]*?<\/style>/gi, "")).slice(0, 300),
       answerText: stripHtml(answerHtml.replace(/<style[\s\S]*?<\/style>/gi, "")).slice(0, 300),
@@ -321,7 +338,7 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
       cards: col.cardsOfNote(note.id).map((c) => ({ id: c.id, ord: c.ord, did: c.odid || c.did, deck: col.deck(c.odid || c.did)?.name, template: nt.kind === 1 ? `Cloze ${c.ord + 1}` : nt.templates[c.ord]?.name, queue: c.queue, type: c.type })),
     };
   });
-  r.put("/api/notes/:id", async (ctx) => {
+  r.put("/api/notes/:id", browseAction("Edit note", async (ctx) => {
     const b = await ctx.json<{ fields?: string[]; tags?: string[] }>();
     const id = num(ctx.params.id);
     const before = col.note(id);
@@ -331,20 +348,23 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
     const created = col.cardsOfNote(id).filter((c) => !existingCards.has(c.id)).map((c) => c.id);
     pushUndo({ label: "Edit Note", cards: [], deleteCards: created, notes: [{ id, tags: before.tags, mtime: before.mtime, flds: before.flds }] });
     return { ok: true, newCards: created.length };
-  });
-  r.post("/api/notes/delete", async (ctx) => {
+  }));
+  r.post("/api/notes/delete", browseAction("Delete notes", async (ctx) => {
     const { noteIds } = await ctx.json<{ noteIds: number[] }>();
     col.removeNotes(noteIds);
     return { removed: noteIds.length };
-  });
-  r.post("/api/notes/tags", async (ctx) => {
+  }));
+  r.post("/api/notes/tags", browseAction((b: { add?: string[]; remove?: string[] }) => {
+    const only = (l?: string[]) => l?.length === 1 && l[0] === "marked";
+    return only(b.add) ? "Mark" : only(b.remove) ? "Unmark" : b.add?.length ? "Add tags" : "Remove tags";
+  }, async (ctx) => {
     const b = await ctx.json<{ noteIds: number[]; add?: string[]; remove?: string[] }>();
     const before = b.noteIds.map((id) => col.note(id)).filter(Boolean).map((n) => ({ id: n!.id, tags: n!.tags, mtime: n!.mtime }));
     col.modifyTags(b.noteIds, b.add ?? [], b.remove ?? []);
     pushUndo({ label: b.add?.length ? "Add Tags" : "Remove Tags", cards: [], notes: before });
     return { ok: true };
-  });
-  r.post("/api/notes/find-replace", async (ctx) => {
+  }));
+  r.post("/api/notes/find-replace", browseAction("Find and replace", async (ctx) => {
     const b = await ctx.json<{ noteIds: number[]; find: string; replace: string; regex?: boolean; matchCase?: boolean; field?: string | null }>();
     assert(b.find, "Nothing to find");
     const re = new RegExp(b.regex ? b.find : b.find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), b.matchCase ? "g" : "gi");
@@ -377,37 +397,35 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
       }
     });
     return { changed };
-  });
-  r.post("/api/notes/change-notetype", async (ctx) => {
+  }));
+  r.post("/api/notes/change-notetype", browseAction("Change note type", async (ctx) => {
     const b = await ctx.json<{ noteIds: number[]; notetypeId: number; fieldMap: number[]; templateMap?: number[] }>();
-    const target = col.notetype(b.notetypeId);
-    assert(target, "Notetype not found", 404);
-    let changed = 0;
-    col.tx(() => {
-      for (const id of b.noteIds) {
-        const n = col.note(id);
-        if (!n) continue;
-        const old = splitFields(n.flds);
-        const fields = target.fields.map((_, i) => (b.fieldMap[i] != null && b.fieldMap[i] >= 0 ? (old[b.fieldMap[i]] ?? "") : ""));
-        const cards = col.cardsOfNote(id);
-        if (b.templateMap && target.kind === 0) {
-          const keep = new Map<number, number>(); // oldOrd -> newOrd
-          b.templateMap.forEach((oldOrd, newOrd) => oldOrd != null && oldOrd >= 0 && keep.set(oldOrd, newOrd));
-          for (const c of cards) {
-            if (keep.has(c.ord)) col.db.query("UPDATE cards SET ord=? WHERE id=?").run(-1 - keep.get(c.ord)!, c.id);
-            else col.removeCards([c.id], false);
-          }
-          col.db.query("UPDATE cards SET ord=-1-ord WHERE nid=? AND ord<0").run(id);
-        } else if (target.kind === 1) {
-          // cloze: card ords follow cloze numbers; drop cards and regenerate if mismatch
-        }
-        col.db.query("UPDATE notes SET ntid=?, flds=?, mtime=? WHERE id=?").run(target.id, joinFields(fields), nowSecs(), id);
-        col.updateNote(id, fields);
-        changed++;
-      }
-    });
-    return { changed };
+    return { changed: changeNotetype(col, b.noteIds, b.notetypeId, b.fieldMap, b.templateMap) };
+  }));
+  r.post("/api/notes/duplicate", browseAction("Duplicate", async (ctx) => duplicateNotes(col, await ctx.json())));
+
+  // ---------------- offline study (docs/OFFLINE.md) ----------------
+  r.post("/api/offline/pack", async (ctx) => {
+    const b = await ctx.json<{ deckIds: number[]; days?: number; platform?: string }>();
+    const platform = b.platform ?? "android";
+    const pack = buildPack(col, b, (c) => {
+      const p = renderFor(c, ctx, { platform, nightTokens: true });
+      return { question: p.question, answer: p.answer, hasTypeAnswer: p.hasTypeAnswer, questionText: p.questionText };
+    }, mediaBaseFor(ctx, opts));
+    const body = JSON.stringify(pack);
+    if (!/\bgzip\b/.test(ctx.req.headers.get("accept-encoding") ?? "")) return new Response(body, { headers: { "content-type": "application/json; charset=utf-8" } });
+    return new Response(Bun.gzipSync(body), { headers: { "content-type": "application/json; charset=utf-8", "content-encoding": "gzip" } });
   });
+  r.post("/api/offline/sync", async (ctx) => syncOffline(col, await ctx.json<SyncRequest>()));
+
+  // ---------------- display order (layouts) ----------------
+  r.get("/api/layouts", () => layoutFamilies(col));
+  r.post("/api/layouts/options", async (ctx) => layoutOptions(col, (await ctx.json<{ cardIds: number[] }>()).cardIds ?? []));
+  r.post("/api/layouts/assign", browseAction("Display order", async (ctx) => {
+    const b = await ctx.json<{ cardIds: number[]; notetypeId: number }>();
+    return assignLayout(col, b.cardIds ?? [], Number(b.notetypeId));
+  }));
+  r.post("/api/layouts", browseAction("Display order", async (ctx) => createLayout(col, await ctx.json<{ cardIds: number[]; name: string; qfmt: string; afmt: string }>())));
 
   // ---------------- cards ----------------
   r.get("/api/cards/:id", (ctx) => {
@@ -416,7 +434,13 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
     return { ...cardSummary(c), ...renderFor(c, ctx) };
   });
   r.get("/api/cards/:id/info", (ctx) => cardInfo(col, num(ctx.params.id)));
-  r.post("/api/cards/actions", async (ctx) => cardAction(col, await ctx.json<CardAction>()));
+  r.post(
+    "/api/cards/actions",
+    browseAction((b: CardAction) =>
+      b.action === "reposition" ? null // order isn't part of the history
+      : b.action === "flag" ? (b.flag ? "Flag" : "Remove flag")
+      : ({ suspend: "Suspend", unsuspend: "Unsuspend", bury: "Bury", unbury: "Unbury", forget: "Reset", delete: "Delete cards", setDeck: "Change deck", setDue: "Set due date" } as Record<string, string>)[b.action] ?? null, async (ctx) => cardAction(col, await ctx.json<CardAction>())),
+  );
   r.post("/api/render/preview", async (ctx) => {
     // Render arbitrary content (card template editor / add-note preview)
     const b = await ctx.json<{ notetype?: Notetype; notetypeId?: number; fields: string[]; ord: number; tags?: string; night?: boolean; platform?: string }>();
@@ -504,6 +528,10 @@ export function buildRoutes(col: Collection, opts: ServerOptions): Router {
     return { answer: renderFor(c, ctx, { night: b.night, platform: b.platform, typed: b.typed ?? "" }).answer };
   });
   r.get("/api/undo", () => undoStatus());
+  // Browse undo/redo (history.ts)
+  r.get("/api/history", () => historyStatus());
+  r.post("/api/history/undo", () => undoStep(col));
+  r.post("/api/history/redo", () => redoStep(col));
   r.post("/api/undo", () => ({ undone: undo(col)?.label ?? null }));
 
   // ---------------- stats ----------------
@@ -689,6 +717,21 @@ function dueString(col: Collection, c: SearchRow, today: number): { text: string
   return { text, sort };
 }
 
+/** Browser card states, in their sort order. */
+export const CARD_STATES = ["new", "learning", "review", "due", "suspended", "buried", "marked", "leech"] as const;
+export type CardState = (typeof CARD_STATES)[number];
+/** One state per card. Tags win (leech, then marked), then suspended/buried, then the scheduling state. */
+export function cardState(r: SearchRow, today: number): CardState {
+  const tags = parseTags(r.tags).map((t) => t.toLowerCase());
+  if (tags.includes("leech")) return "leech";
+  if (tags.includes("marked")) return "marked";
+  if (r.queue === Queue.Suspended) return "suspended";
+  if (r.queue === Queue.SchedBuried || r.queue === Queue.UserBuried) return "buried";
+  if (r.type === CardType.New) return "new";
+  if (r.type === CardType.Learn || r.type === CardType.Relearn) return "learning";
+  return (r.odid ? r.odue || r.due : r.due) <= today ? "due" : "review";
+}
+
 function browse(col: Collection, ctx: Ctx) {
   const q = ctx.query.get("q") ?? "";
   const mode = ctx.query.get("mode") === "notes" ? "notes" : "cards";
@@ -708,8 +751,23 @@ function browse(col: Collection, ctx: Ctx) {
     const nt = col.notetype(r.ntid);
     return nt?.kind === 1 ? `Cloze ${r.ord + 1}` : (nt?.templates[r.ord]?.name ?? "");
   };
+  // "#": position in the order the home deck came with (by note creation, or where a duplicate was placed, then card template), 1-based per deck
+  const order = new Map<number, number>();
+  for (const o of col.db
+    .query<{ id: number; card: number; note: number }, []>(
+      `SELECT c.id id, ROW_NUMBER() OVER w card, DENSE_RANK() OVER (PARTITION BY CASE WHEN c.odid != 0 THEN c.odid ELSE c.did END ORDER BY COALESCE(n.sort_pos, n.id), n.id) note
+       FROM cards c JOIN notes n ON n.id = c.nid
+       WINDOW w AS (PARTITION BY CASE WHEN c.odid != 0 THEN c.odid ELSE c.did END ORDER BY COALESCE(n.sort_pos, n.id), n.id, c.ord)`,
+    )
+    .iterate())
+    order.set(o.id, mode === "notes" ? o.note : o.card);
+  const homeDeck = (r: SearchRow) => (col.deck(r.odid || r.did)?.name ?? "").toLowerCase();
+  const layouts = layoutNames(col);
+  const layoutOf = (r: SearchRow) => layouts.get(r.ntid);
   const key = (r: SearchRow): number | string => {
     switch (sort) {
+      case "order": // grouped by home deck, so numbers from different decks don't interleave
+        return `${homeDeck(r)}\u0000${String(order.get(r.id) ?? 0).padStart(9, "0")}`;
       case "sortField":
         return r.sfld.toLowerCase();
       case "due":
@@ -730,6 +788,13 @@ function browse(col: Collection, ctx: Ctx) {
         return ntName(r.ntid).toLowerCase();
       case "template":
         return tmplName(r).toLowerCase();
+      case "state":
+        return CARD_STATES.indexOf(cardState(r, today));
+      case "layout": {
+        // grouped by note type, Default first, then layouts by name
+        const l = layoutOf(r);
+        return `${(l?.base ?? "").toLowerCase()}\u0000${l && !l.isDefault ? l.name.toLowerCase() : ""}`;
+      }
       case "difficulty":
         return r.difficulty ?? -1;
       case "stability":
@@ -763,6 +828,7 @@ function browse(col: Collection, ctx: Ctx) {
     return {
       id: r.id,
       nid: r.nid,
+      order: order.get(r.id) ?? 0,
       sortField: r.sfld.slice(0, 200),
       question,
       answer,
@@ -780,6 +846,8 @@ function browse(col: Collection, ctx: Ctx) {
       modified: new Date((mode === "notes" ? r.nmtime : r.mtime) * 1000).toISOString().slice(0, 10),
       tags: parseTags(r.tags),
       flags: r.flags & 7,
+      state: cardState(r, today),
+      layout: layoutOf(r)?.name ?? "Default",
       queue: r.queue,
       type: r.type,
       marked: parseTags(r.tags).some((t) => t.toLowerCase() === "marked"),

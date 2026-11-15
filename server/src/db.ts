@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -96,10 +96,45 @@ CREATE TABLE IF NOT EXISTS graves (
 );
 `;
 
+// Columns whose change counts as a modification for offline sync (mtime-only touches don't).
+const CARD_SYNC_COLS = ["nid", "did", "ord", "type", "queue", "due", "ivl", "factor", "reps", "lapses", "left", "odue", "odid", "flags", "stability", "difficulty", "last_review", "custom_data"];
+
+/**
+ * Change tracking for offline sync (docs/OFFLINE.md): `sync_state.version` is a counter, and every card
+ * insert/real update and every review-log insert stamps the row's `usn` with it. Triggers cover every code path.
+ */
+const SYNC_SCHEMA = `
+CREATE TABLE IF NOT EXISTS sync_state (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL);
+INSERT OR IGNORE INTO sync_state(id, version) VALUES (1, 1);
+CREATE TRIGGER IF NOT EXISTS cards_usn_insert AFTER INSERT ON cards BEGIN
+  UPDATE cards SET usn = (SELECT version FROM sync_state WHERE id = 1) WHERE id = NEW.id;
+END;
+CREATE TRIGGER IF NOT EXISTS cards_usn_update AFTER UPDATE ON cards
+  WHEN NEW.usn IS OLD.usn AND (${CARD_SYNC_COLS.map((c) => `NEW.${c} IS NOT OLD.${c}`).join(" OR ")}) BEGIN
+  UPDATE cards SET usn = (SELECT version FROM sync_state WHERE id = 1) WHERE id = NEW.id;
+END;
+CREATE TRIGGER IF NOT EXISTS revlog_usn_insert AFTER INSERT ON revlog BEGIN
+  UPDATE revlog SET usn = (SELECT version FROM sync_state WHERE id = 1) WHERE id = NEW.id;
+END;
+CREATE INDEX IF NOT EXISTS ix_revlog_usn ON revlog(usn);
+`;
+
 export function initSchema(db: Database): Database {
   db.exec("PRAGMA foreign_keys = OFF;");
   db.exec(SCHEMA);
   const v = db.query<{ value: string }, []>("SELECT value FROM config WHERE key='schema_version'").get();
   if (!v) db.query("INSERT INTO config(key,value) VALUES ('schema_version', ?)").run(String(SCHEMA_VERSION));
+  migrate(db);
   return db;
+}
+
+function migrate(db: Database) {
+  const has = (table: string, col: string) => db.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all().some((r) => r.name === col);
+  // v2: offline sync change tracking
+  if (!has("cards", "usn")) db.exec("ALTER TABLE cards ADD COLUMN usn INTEGER NOT NULL DEFAULT 0");
+  if (!has("revlog", "usn")) db.exec("ALTER TABLE revlog ADD COLUMN usn INTEGER NOT NULL DEFAULT 0");
+  db.exec(SYNC_SCHEMA);
+  // v3: a note's place in its deck's original order ("#") when that isn't its creation order (a duplicate placed after its original)
+  if (!has("notes", "sort_pos")) db.exec("ALTER TABLE notes ADD COLUMN sort_pos REAL");
+  db.query("UPDATE config SET value=? WHERE key='schema_version' AND CAST(value AS INTEGER) < ?").run(String(SCHEMA_VERSION), SCHEMA_VERSION);
 }

@@ -9,7 +9,9 @@ import { nextCard, answerCard, undo, countsFor } from "../src/sched/queue";
 import { renderCard, cardOrdsForNote, compareTypedAnswer } from "../src/render/template";
 import { renderCloze } from "../src/render/cloze";
 import { buildCardPage } from "../src/render/page";
-import { searchCardIds } from "../src/search";
+import { searchCardIds, searchRows } from "../src/search";
+import { cardState, CARD_STATES } from "../src/api/routes";
+import { layoutOptions, createLayout, assignLayout, duplicateNotes, layoutFamilies, layoutNames } from "../src/layouts";
 import { importApkg } from "../src/importer/apkg";
 import { exportApkg } from "../src/exporter/apkg";
 import { importCsv, previewCsv } from "../src/importer/text";
@@ -271,6 +273,108 @@ describe("search", () => {
     expect(searchCardIds(col, "(dog or cat) -gato").length).toBe(1);
     expect(searchCardIds(col, "c*a").length).toBeGreaterThanOrEqual(2);
     expect(searchCardIds(col, "added:1").length).toBe(3);
+  });
+});
+
+describe("browser card state", () => {
+  test("one state per card, tags first", () => {
+    for (let i = 0; i < 8; i++) col.addNote(basic().id, [`s${i}`, "b"], i === 6 ? ["marked"] : i === 7 ? ["leech", "marked"] : [], 1);
+    const ids = col.db.query<{ id: number }, []>("SELECT id FROM cards ORDER BY id").all().map((r) => r.id);
+    const t = col.today();
+    const set = (i: number, sql: string, ...args: number[]) => col.db.query(`UPDATE cards SET ${sql} WHERE id=?`).run(...args, ids[i]);
+    set(1, "type=1, queue=1, due=?", NOW + 60);
+    set(2, "type=2, queue=2, ivl=5, due=?", t + 3);
+    set(3, "type=2, queue=2, ivl=5, due=?", t);
+    set(4, "type=2, queue=-1, ivl=5, due=?", t);
+    set(5, "type=2, queue=-2, ivl=5, due=?", t + 1);
+    set(7, "type=2, queue=-1, ivl=5, due=?", t);
+    const byId = new Map(searchRows(col, "").map((r) => [r.id, cardState(r, t)]));
+    expect(ids.map((id) => byId.get(id))).toEqual([...CARD_STATES]);
+  });
+});
+
+describe("display order (layouts) and duplicate", () => {
+  const cardsOf = () => col.db.query<{ id: number; nid: number; ord: number }, []>("SELECT id, nid, ord FROM cards ORDER BY id").all();
+  test("a new layout moves only the selected cards, keeping their history", () => {
+    for (let i = 0; i < 4; i++) col.addNote(basic().id, [`es${i}`, `en${i}`], [], 1);
+    const [a, b, c] = cardsOf();
+    col.db.query("INSERT INTO revlog(id,cid,ease,ivl,last_ivl,factor,time,type) VALUES (?,?,3,1,0,2500,1000,0)").run(Date.now() - 5000, a.id);
+    const idsBefore = cardsOf().map((x) => [x.id, x.ord]);
+    const before = layoutOptions(col, [a.id, b.id]);
+    expect(before.ok && before.options.map((o) => [o.name, o.selected])).toEqual([["Default", 2]]);
+
+    const r = createLayout(col, { cardIds: [a.id, b.id], name: "English → Spanish", qfmt: "{{Back}}", afmt: "{{FrontSide}}<hr id=answer>{{Front}}" });
+    expect(r.changed).toBe(2);
+    const ntOf = (nid: number) => col.note(nid)!.ntid;
+    expect(ntOf(a.nid)).toBe(r.notetypeId);
+    expect(ntOf(b.nid)).toBe(r.notetypeId);
+    expect(ntOf(c.nid)).toBe(basic().id); // untouched
+    expect(cardsOf().map((x) => [x.id, x.ord])).toEqual(idsBefore); // same cards and card types, none added
+    expect(col.db.query<{ n: number }, [number]>("SELECT count(*) n FROM revlog WHERE cid=?").get(a.id)!.n).toBe(1);
+    const copy = col.notetype(r.notetypeId)!;
+    expect(copy.templates[0].qfmt).toBe("{{Back}}");
+    expect(col.note(a.nid)!.flds).toBe(`es0\x1fen0`);
+
+    // options from either side of the family list Default first, then the copy
+    const opts = layoutOptions(col, [a.id, c.id]);
+    expect(opts.ok && opts.options.map((o) => [o.name, o.selected])).toEqual([["Default", 1], ["English → Spanish", 1]]);
+    expect(() => createLayout(col, { cardIds: [c.id], name: "english → spanish", qfmt: "x", afmt: "" })).toThrow("already a layout");
+    expect(() => createLayout(col, { cardIds: [c.id], name: "Default", qfmt: "x", afmt: "" })).toThrow();
+
+    // back to Default
+    assignLayout(col, [a.id], basic().id);
+    expect(ntOf(a.nid)).toBe(basic().id);
+    expect(ntOf(b.nid)).toBe(r.notetypeId);
+  });
+  test("cards of different card types or note types can't share a layout", () => {
+    const rev = col.notetypeByName("Basic (and reversed card)")!;
+    col.addNote(rev.id, ["q", "a"], [], 1);
+    col.addNote(basic().id, ["x", "y"], [], 1);
+    const [fwd, back, other] = cardsOf();
+    expect(layoutOptions(col, [fwd.id, back.id])).toMatchObject({ ok: false, reason: expect.stringContaining("card types") });
+    expect(layoutOptions(col, [fwd.id, other.id])).toMatchObject({ ok: false, reason: expect.stringContaining("note types") });
+    // a layout for the reverse card replaces only that template; the forward card keeps its layout
+    const r = createLayout(col, { cardIds: [back.id], name: "Plain", qfmt: "{{Back}}?", afmt: "{{Front}}" });
+    const copy = col.notetype(r.notetypeId)!;
+    expect(copy.templates[1].qfmt).toBe("{{Back}}?");
+    expect(copy.templates[0].qfmt).toBe(rev.templates[0].qfmt);
+    expect(cardsOf().map((c) => [c.id, c.ord])).toEqual([[fwd.id, 0], [back.id, 1], [other.id, 0]]);
+  });
+  test("layout families for the sidebar, names for the column, and filtering by layout", () => {
+    for (let i = 0; i < 3; i++) col.addNote(basic().id, [`es${i}`, `en${i}`], [], 1);
+    const [a, b, c] = cardsOf();
+    expect(layoutFamilies(col)).toEqual([]); // no layouts yet: nothing to list
+    const r1 = createLayout(col, { cardIds: [a.id], name: "Reverse_1 \"quoted\"", qfmt: "{{Back}}", afmt: "{{Front}}" });
+    const r2 = createLayout(col, { cardIds: [b.id], name: "Audio first", qfmt: "{{Back}}!", afmt: "{{Front}}" });
+    const fam = layoutFamilies(col);
+    expect(fam).toHaveLength(1);
+    expect(fam[0].notetype).toBe("Basic");
+    expect(fam[0].layouts.map((l) => [l.name, l.cards])).toEqual([["Default", 1], ["Audio first", 1], ['Reverse_1 "quoted"', 1]]);
+    expect(layoutNames(col).get(r2.notetypeId)).toMatchObject({ name: "Audio first", base: "Basic", isDefault: false });
+    expect(layoutNames(col).get(basic().id)).toMatchObject({ name: "Default", isDefault: true });
+    // the sidebar's search: note:"<name>" with \ " * _ escaped matches exactly that layout
+    const q = (name: string) => `note:"${name.replace(/[\\"*_]/g, "\\$&")}"`;
+    expect(searchCardIds(col, q("Basic"))).toEqual([c.id]);
+    expect(searchCardIds(col, q(col.notetype(r1.notetypeId)!.name))).toEqual([a.id]);
+    expect(searchCardIds(col, `(${q("Basic")} OR ${q(col.notetype(r2.notetypeId)!.name)})`).sort()).toEqual([b.id, c.id].sort());
+  });
+  test("duplicate makes new notes created now, with fresh cards in the same deck", () => {
+    const deck = col.ensureDeck("Dup").id;
+    col.addNote(basic().id, ["hola", "hello"], ["greet"], deck);
+    const [orig] = cardsOf();
+    col.db.query("UPDATE cards SET type=2, queue=2, ivl=30, due=?, reps=5 WHERE id=?").run(col.today() + 10, orig.id);
+    const start = Date.now();
+    const r = duplicateNotes(col, { cardIds: [orig.id] });
+    expect(r).toMatchObject({ notes: 1, cards: 1 });
+    const n = col.note(r.noteIds[0])!;
+    expect(n.id).not.toBe(orig.nid);
+    expect(n.id).toBeGreaterThanOrEqual(start); // created now
+    expect(n.mtime).toBeGreaterThanOrEqual(Math.floor(start / 1000)); // modified now
+    expect(n.flds).toBe(col.note(orig.nid)!.flds);
+    expect(n.tags.trim()).toBe("greet");
+    const [dup] = col.cardsOfNote(n.id);
+    expect(dup).toMatchObject({ did: deck, type: 0, reps: 0 });
+    expect(dup.id).toBeGreaterThanOrEqual(start);
   });
 });
 

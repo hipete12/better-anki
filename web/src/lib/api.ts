@@ -178,6 +178,8 @@ export interface StudyState {
 export interface BrowseRow {
   id: number;
   nid: number;
+  /** Position in the order the deck came with (per home deck; notes mode numbers notes). */
+  order: number;
   sortField: string;
   question: string;
   answer: string;
@@ -195,11 +197,16 @@ export interface BrowseRow {
   modified: string;
   tags: string[];
   flags: number;
+  /** One state per card; see cardState() on the server. */
+  state: CardState;
+  /** Display order layout the card uses ("Default" unless it was moved to a layout). */
+  layout: string;
   queue: number;
   type: number;
   marked: boolean;
   cards: number;
 }
+export type CardState = "new" | "learning" | "review" | "due" | "suspended" | "buried" | "marked" | "leech";
 export interface NoteData {
   id: number;
   guid: string;

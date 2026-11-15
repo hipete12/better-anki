@@ -81,7 +81,7 @@ private fun FieldInput(label: String, value: TextFieldValue, onChange: (TextFiel
 }
 
 @Composable
-fun AddNoteTab(app: AppState) {
+fun AddNoteTab(app: AppState, deckId: Long? = null) {
     var notetypes by remember { mutableStateOf<List<Notetype>>(emptyList()) }
     var decks by remember { mutableStateOf<List<DeckListItem>>(emptyList()) }
     var nt by remember { mutableStateOf<Notetype?>(null) }
@@ -97,7 +97,7 @@ fun AddNoteTab(app: AppState) {
             decks = app.api.get<List<DeckListItem>>("/api/decks/list").filter { it.kind == 0 }
             val cfg = app.api.get<AppConfig>("/api/config")
             nt = notetypes.firstOrNull { it.id == cfg.lastNotetypeId } ?: notetypes.firstOrNull { it.name == "Basic" } ?: notetypes.firstOrNull()
-            deck = decks.firstOrNull { it.id == cfg.lastDeckId } ?: decks.firstOrNull { it.id == cfg.currentDeckId } ?: decks.firstOrNull()
+            deck = decks.firstOrNull { it.id == deckId } ?: decks.firstOrNull { it.id == cfg.lastDeckId } ?: decks.firstOrNull { it.id == cfg.currentDeckId } ?: decks.firstOrNull()
         } catch (e: Exception) { msg = (e.message ?: "Error") to false }
     }
     LaunchedEffect(nt) {
@@ -195,45 +195,4 @@ fun EditNoteScreen(app: AppState, nid: Long) {
         confirmButton = { TextButton(onClick = { confirmDelete = false; scope.launch { try { app.api.post<JsonObject>("/api/notes/delete", buildJsonObject { putJsonArray("noteIds") { add(nid) } }); app.pop() } catch (e: Exception) { error = e.message } } }) { Text("Delete", color = Color(0xFFDC2626)) } },
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
     )
-}
-
-@Composable
-fun DeckOverviewScreen(app: AppState, id: Long) {
-    var data by remember { mutableStateOf<DeckOverview?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    suspend fun load() { try { data = app.api.get("/api/decks/$id"); error = null } catch (e: Exception) { error = e.message } }
-    LaunchedEffect(id, app.changeTick) { load() }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding()) {
-        Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { app.pop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-            Text("Decks", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        error?.let { ErrorBox(it, Modifier.padding(16.dp)) }
-        val d = data ?: return@Column Loading()
-        val parts = d.deck.name.split("::")
-        Column(Modifier.padding(horizontal = 20.dp)) {
-            if (parts.size > 1) Text(parts.dropLast(1).joinToString(" / "), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
-            Text(parts.last(), style = MaterialTheme.typography.headlineMedium)
-            d.configName?.let { Text("$it preset", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            Spacer(Modifier.height(28.dp))
-            val ac = appColors
-            Row(horizontalArrangement = Arrangement.spacedBy(36.dp)) {
-                Stat("${d.counts.new}", "New", color = if (d.counts.new > 0) ac.new else ac.faint, large = true)
-                Stat("${d.counts.learn}", "Learning", color = if (d.counts.learn > 0) ac.learn else ac.faint, large = true)
-                Stat("${d.counts.review}", "To review", color = if (d.counts.review > 0) ac.due else ac.faint, large = true)
-            }
-            Spacer(Modifier.height(28.dp))
-            val due = d.counts.new + d.counts.learn + d.counts.review
-            if (due > 0) Button(
-                onClick = { app.push(Screen.Study(id)) },
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BrandDark, contentColor = Color.White),
-            ) { Text("Study now", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-            else Text("Nothing due right now.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
-            if (d.buried > 0) OutlinedButton(onClick = { scope.launch { app.api.post<JsonObject>("/api/decks/$id/unbury"); load() } }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), shape = RoundedCornerShape(10.dp)) { Text("Unbury ${d.buried} cards") }
-            Text("Deck options, custom study and export are in the web app.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp))
-        }
-    }
 }

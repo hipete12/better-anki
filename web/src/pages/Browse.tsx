@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Search, Tag, Flag, ChevronDown, ChevronUp, MoreHorizontal, PauseCircle, Trash2, FolderInput, Tags, CalendarClock, RotateCcw, ListOrdered, Replace, Download, Filter, Info, Star, SlidersHorizontal, X, Eye, EyeOff, PanelLeft } from "lucide-react";
-import { api, type BrowseRow, type NoteData } from "../lib/api";
+import { Search, Tag, Flag, Copy, LayoutTemplate, Undo2, Redo2, ChevronDown, ChevronUp, MoreHorizontal, PauseCircle, Trash2, FolderInput, Tags, CalendarClock, RotateCcw, ListOrdered, Replace, Download, Filter, Info, Star, SlidersHorizontal, X, Eye, EyeOff, PanelLeft } from "lucide-react";
+import { api, type BrowseRow, type CardState, type NoteData } from "../lib/api";
 import { useApi, useLocalStorage, useIsDark } from "../lib/hooks";
 import { Button, cx, Field, IconButton, Input, Loading, Menu, Modal, Select, Switch, Tabs, useDialogs, useToast, Badge } from "../components/ui";
 import NoteEditor from "../components/NoteEditor";
@@ -9,9 +9,12 @@ import CardFrame from "../components/CardFrame";
 import CardInfoDialog from "../components/CardInfoDialog";
 import ExportDialog from "../components/ExportDialog";
 import FilteredDeckDialog from "../components/FilteredDeckDialog";
+import DisplayOrderDialog, { LayoutRow } from "../components/DisplayOrderDialog";
 
-const COLUMNS: { key: keyof BrowseRow; label: string; sort?: string; cls?: string; notes?: boolean; cards?: boolean }[] = [
-  { key: "sortField", label: "Sort Field", sort: "sortField", cls: "min-w-48" },
+const COLUMNS: { key: keyof BrowseRow; label: string; title?: string; sort?: string; cls?: string; align?: "center" | "right"; notes?: boolean; cards?: boolean }[] = [
+  { key: "order", label: "#", title: "Position in the order the deck came with", sort: "order", cls: "w-14 text-faint tnum", align: "right" },
+  { key: "sortField", label: "Card", sort: "sortField", cls: "min-w-48" },
+  { key: "state", label: "State", sort: "state", cls: "w-16", align: "center", cards: true },
   { key: "question", label: "Question", cls: "min-w-48", cards: true },
   { key: "answer", label: "Answer", cls: "min-w-40", cards: true },
   { key: "deck", label: "Deck", sort: "deck" },
@@ -23,13 +26,41 @@ const COLUMNS: { key: keyof BrowseRow; label: string; sort?: string; cls?: strin
   { key: "reps", label: "Reviews", sort: "reps", cards: true },
   { key: "lapses", label: "Lapses", sort: "lapses", cards: true },
   { key: "notetype", label: "Note Type", sort: "notetype" },
-  { key: "template", label: "Card", sort: "template", cards: true },
+  { key: "template", label: "Card type", sort: "template", cards: true },
+  { key: "layout", label: "Display order", sort: "layout" },
   { key: "cards", label: "Cards", notes: true },
   { key: "tags", label: "Tags" },
   { key: "created", label: "Created", sort: "created" },
   { key: "modified", label: "Modified", sort: "modified" },
 ];
-const DEFAULT_COLS = ["sortField", "deck", "due", "ivl", "ease", "tags"];
+const DEFAULT_COLS = ["order", "sortField", "state", "deck", "due", "ivl", "ease", "tags"];
+/** Columns added later: shown once (next to the card name) for people with saved column choices. */
+const ADDED_COLS = [
+  { key: "state", flag: "ba.browse.stateCol", after: true },
+  { key: "order", flag: "ba.browse.orderCol", after: false },
+];
+/** State dots, in the server's sort order. Review (not due yet) is a hollow ring, due is filled. */
+const STATES: Record<CardState, { label: string; cls: string }> = {
+  new: { label: "New", cls: "bg-new" },
+  learning: { label: "Learning", cls: "bg-learn" },
+  review: { label: "Review (not due yet)", cls: "border-[1.5px] border-due" },
+  due: { label: "Due", cls: "bg-due" },
+  suspended: { label: "Suspended", cls: "bg-yellow-500 dark:bg-yellow-400" },
+  buried: { label: "Buried", cls: "bg-zinc-400 dark:bg-zinc-500" },
+  marked: { label: "Marked", cls: "bg-violet-600 dark:bg-violet-400" },
+  leech: { label: "Leech", cls: "bg-orange-600 dark:bg-orange-400" },
+};
+/** Browse changes go in the Browse undo/redo history (server history.ts). */
+const H = "?history=browse";
+type History = { undo: string | null; redo: string | null };
+type Placement = "end" | "after" | "start" | "afterLast";
+/** Duplicate placements, shown with the example of duplicating 2, 4 and 5 out of 1–6. */
+const PLACEMENTS: { value: Placement; title: string; note: string; seq: string[] }[] = [
+  { value: "end", title: "End of the deck", note: "After every other card.", seq: ["1", "2", "3", "4", "5", "6", "2′", "4′", "5′"] },
+  { value: "after", title: "After each original", note: "Each copy goes right after the card it came from.", seq: ["1", "2", "2′", "3", "4", "4′", "5", "5′", "6"] },
+  { value: "start", title: "Start of the deck", note: "Before every other card.", seq: ["2′", "4′", "5′", "1", "2", "3", "4", "5", "6"] },
+  { value: "afterLast", title: "Together, after the last selected", note: "All copies, in order, right after the last card you selected.", seq: ["1", "2", "3", "4", "5", "2′", "4′", "5′", "6"] },
+];
 const FLAG_COLORS = ["", "#ef4444", "#f97316", "#22c55e", "#3b82f6", "#ec4899", "#14b8a6", "#a855f7"];
 const FLAG_NAMES = ["No flag", "Red", "Orange", "Green", "Blue", "Pink", "Turquoise", "Purple"];
 
@@ -40,6 +71,20 @@ export default function Browse() {
   const [mode, setMode] = useLocalStorage<"cards" | "notes">("ba.browse.mode", "cards");
   const [sort, setSort] = useLocalStorage<{ col: string; desc: boolean }>("ba.browse.sort", { col: "created", desc: true });
   const [cols, setCols] = useLocalStorage<string[]>("ba.browse.cols", DEFAULT_COLS);
+  useEffect(() => {
+    let next = cols;
+    for (const a of ADDED_COLS) {
+      try {
+        if (localStorage.getItem(a.flag)) continue;
+        localStorage.setItem(a.flag, "1");
+      } catch {
+        continue;
+      }
+      if (!next.includes(a.key)) next = next.flatMap((c) => (c === "sortField" ? (a.after ? [c, a.key] : [a.key, c]) : [c]));
+    }
+    if (next !== cols) setCols(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [rows, setRows] = useState<BrowseRow[]>([]);
   const [ids, setIds] = useState<number[]>([]);
   const [total, setTotal] = useState(0);
@@ -55,11 +100,14 @@ export default function Browse() {
   const seq = useRef(0);
   const dialogs = useDialogs();
   const toast = useToast();
+  const [history, setHistory] = useState<History>({ undo: null, redo: null });
+  const refreshHistory = useCallback(() => api.get<History>("/api/history").then(setHistory).catch(() => {}), []);
 
   const search = useCallback(
     async (offset = 0) => {
       const my = ++seq.current;
       setLoading(true);
+      if (!offset) refreshHistory();
       try {
         const r = await api.get<{ total: number; rows: BrowseRow[]; ids: number[] }>(`/api/browse?${new URLSearchParams({ q: query, mode, sort: sort.col, desc: sort.desc ? "1" : "0", offset: String(offset), limit: "150" })}`);
         if (my !== seq.current) return;
@@ -67,13 +115,18 @@ export default function Browse() {
         setTotal(r.total);
         setIds(r.ids);
         setRows((old) => (offset ? [...old, ...r.rows] : r.rows));
+        if (!offset) {
+          // drop selected rows that are gone (deleted, or undone)
+          const all = new Set(r.ids);
+          setSelected((sel) => ([...sel].every((id) => all.has(id)) ? sel : new Set([...sel].filter((id) => all.has(id)))));
+        }
       } catch (e) {
         if (my === seq.current) setError((e as Error).message);
       } finally {
         if (my === seq.current) setLoading(false);
       }
     },
-    [query, mode, sort],
+    [query, mode, sort, refreshHistory],
   );
 
   useEffect(() => {
@@ -97,11 +150,24 @@ export default function Browse() {
   };
   const selNoteIds = () => (mode === "notes" ? selIds : [...new Set(selRows.map((r) => r.nid))]);
 
+  /** Undo or redo the last Browse change. */
+  const step = async (dir: "undo" | "redo") => {
+    try {
+      const r = await api.post<History & { done: string | null }>(`/api/history/${dir}`);
+      setHistory({ undo: r.undo, redo: r.redo });
+      if (r.done) toast(`${dir === "undo" ? "Undid" : "Redid"} “${r.done}”`, "info");
+      search(0);
+    } catch (e) {
+      toast((e as Error).message, "error");
+      refreshHistory();
+    }
+  };
+
   const cardAct = async (body: Record<string, unknown>, msg: string) => {
     try {
       const cardIds = await selCardIds();
-      await api.post("/api/cards/actions", { ...body, cardIds });
-      toast(msg, "success", { label: "Undo", onClick: () => api.post("/api/undo").then(() => search(0)) });
+      await api.post("/api/cards/actions" + H, { ...body, cardIds });
+      toast(msg, "success", body.action === "reposition" ? undefined : { label: "Undo", onClick: () => step("undo") });
       search(0);
     } catch (e) {
       toast((e as Error).message, "error");
@@ -125,7 +191,10 @@ export default function Browse() {
     const h = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
-      if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z" || e.key === "y")) {
+        e.preventDefault();
+        step(e.key === "y" || e.shiftKey ? "redo" : "undo");
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "a") {
         e.preventDefault();
         setSelected(new Set(ids));
       } else if ((e.ctrlKey || e.metaKey) && e.key === "f") {
@@ -150,13 +219,30 @@ export default function Browse() {
   const removeNotes = async () => {
     const nids = selNoteIds();
     if (!(await dialogs.confirm({ title: `Delete ${nids.length} note${nids.length === 1 ? "" : "s"}?`, body: "All cards of these notes will be deleted.", confirm: "Delete", danger: true }))) return;
-    await api.post("/api/notes/delete", { noteIds: nids });
+    await api.post("/api/notes/delete" + H, { noteIds: nids });
     toast(`Deleted ${nids.length} notes`, "success");
     search(0);
   };
 
   const visibleCols = COLUMNS.filter((c) => cols.includes(c.key) && !(mode === "notes" && c.cards) && !(mode === "cards" && c.notes));
   const anySuspended = selRows.some((r) => r.queue === -1);
+  const [layoutCards, setLayoutCards] = useState<number[] | null>(null);
+  const openDisplayOrder = async () => setLayoutCards(await selCardIds());
+  const [dupOpen, setDupOpen] = useState(false);
+  const [placement, setPlacement] = useLocalStorage<Placement>("ba.browse.duplicatePlacement", "end");
+  const duplicate = async (place: Placement) => {
+    setDupOpen(false);
+    try {
+      const r = await api.post<{ notes: number; cards: number; noteIds: number[]; cardIds: number[] }>("/api/notes/duplicate" + H, { ...(mode === "notes" ? { noteIds: selIds } : { cardIds: selIds }), place });
+      toast(`Duplicated ${r.notes} note${r.notes === 1 ? "" : "s"} (${r.cards} card${r.cards === 1 ? "" : "s"}). The copies are selected.`, "success", { label: "Undo", onClick: () => step("undo") });
+      // select the copies, so the next action applies to them
+      setSelected(new Set(mode === "notes" ? r.noteIds : r.cardIds));
+      setAnchor(null);
+      search(0);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
 
   return (
     <div className="flex h-full">
@@ -188,27 +274,33 @@ export default function Browse() {
             <SlidersHorizontal className="size-5" />
           </IconButton>
         </div>
-        <div className="flex items-center gap-2 px-3 sm:px-4 h-11 border-b border-app text-sm">
-          <span className="text-muted">
+        <div className="@container flex flex-wrap items-center gap-x-2 gap-y-1 px-3 sm:px-4 py-1 min-h-11 border-b border-app text-sm">
+          <span className="text-muted whitespace-nowrap">
             {total.toLocaleString()} {mode} {selected.size > 0 && <span className="text-app font-medium">· {selected.size} selected</span>}
           </span>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-0.5">
             {selected.size > 0 && (
               <>
-                <Button size="sm" variant="ghost" onClick={() => setModal("deck")}>
-                  <FolderInput className="size-4" /> <span className="hidden sm:inline">Change deck</span>
+                <Button size="sm" variant="ghost" onClick={() => setModal("deck")} title="Change deck">
+                  <FolderInput className="size-4" /> <span className="hidden @3xl:inline">Change deck</span>
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => cardAct({ action: anySuspended ? "unsuspend" : "suspend" }, anySuspended ? "Unsuspended" : "Suspended")}>
-                  <PauseCircle className="size-4" /> <span className="hidden sm:inline">{anySuspended ? "Unsuspend" : "Suspend"}</span>
+                <Button size="sm" variant="ghost" onClick={() => cardAct({ action: anySuspended ? "unsuspend" : "suspend" }, anySuspended ? "Unsuspended" : "Suspended")} title={anySuspended ? "Unsuspend" : "Suspend"}>
+                  <PauseCircle className="size-4" /> <span className="hidden @3xl:inline">{anySuspended ? "Unsuspend" : "Suspend"}</span>
                 </Button>
                 <Menu
                   trigger={(t) => (
-                    <Button size="sm" variant="ghost" onClick={t}>
-                      <Flag className="size-4" /> <span className="hidden sm:inline">Flag</span>
+                    <Button size="sm" variant="ghost" onClick={t} title="Flag">
+                      <Flag className="size-4" /> <span className="hidden @3xl:inline">Flag</span>
                     </Button>
                   )}
                   items={FLAG_NAMES.map((n, i) => ({ label: n, icon: <Flag style={{ color: FLAG_COLORS[i] || undefined, fill: FLAG_COLORS[i] || "none" }} />, onClick: () => cardAct({ action: "flag", flag: i }, i ? `Flagged ${n.toLowerCase()}` : "Flag removed") }))}
                 />
+                <Button size="sm" variant="ghost" onClick={openDisplayOrder} title="Display order">
+                  <LayoutTemplate className="size-4" /> <span className="hidden @3xl:inline">Display order</span>
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setDupOpen(true)} title="Duplicate">
+                  <Copy className="size-4" /> <span className="hidden @3xl:inline">Duplicate</span>
+                </Button>
               </>
             )}
             <Menu
@@ -218,11 +310,14 @@ export default function Browse() {
                 </IconButton>
               )}
               items={[
+                { label: history.undo ? `Undo ${history.undo}` : "Undo", icon: <Undo2 />, shortcut: "Ctrl+Z", disabled: !history.undo, onClick: () => step("undo") },
+                { label: history.redo ? `Redo ${history.redo}` : "Redo", icon: <Redo2 />, shortcut: "Ctrl+Shift+Z", disabled: !history.redo, onClick: () => step("redo") },
+                { divider: true, label: "" },
                 { label: "Select all", shortcut: "Ctrl+A", onClick: () => setSelected(new Set(ids)) },
                 { divider: true, label: "" },
                 { label: "Add tags", icon: <Tags />, disabled: !selected.size, onClick: () => setModal("tags-add") },
                 { label: "Remove tags", icon: <Tag />, disabled: !selected.size, onClick: () => setModal("tags-remove") },
-                { label: "Toggle mark", icon: <Star />, disabled: !selected.size, onClick: () => api.post("/api/notes/tags", selRows.every((r) => r.marked) ? { noteIds: selNoteIds(), remove: ["marked"] } : { noteIds: selNoteIds(), add: ["marked"] }).then(() => search(0)) },
+                { label: "Toggle mark", icon: <Star />, disabled: !selected.size, onClick: () => api.post("/api/notes/tags" + H, selRows.every((r) => r.marked) ? { noteIds: selNoteIds(), remove: ["marked"] } : { noteIds: selNoteIds(), add: ["marked"] }).then(() => search(0)) },
                 { label: "Bury / unbury", icon: <EyeOff />, disabled: !selected.size, onClick: () => cardAct({ action: selRows.some((r) => r.queue === -2 || r.queue === -3) ? "unbury" : "bury" }, "Updated") },
                 { label: "Set due date", icon: <CalendarClock />, disabled: !selected.size, onClick: () => setModal("due") },
                 { label: "Reset (forget)", icon: <RotateCcw />, disabled: !selected.size, onClick: () => cardAct({ action: "forget" }, "Reset to new") },
@@ -254,7 +349,7 @@ export default function Browse() {
                   <tr>
                     <th className="w-1.5 border-b border-app" />
                     {visibleCols.map((c) => (
-                      <th key={c.key} className={cx("text-left font-medium text-xs text-muted px-3 py-2 border-b border-app whitespace-nowrap select-none", c.sort && "cursor-pointer hover:text-app")} onClick={() => c.sort && setSort({ col: c.sort, desc: sort.col === c.sort ? !sort.desc : false })}>
+                      <th key={c.key} title={c.title} className={cx("font-medium text-xs text-muted px-3 py-2 border-b border-app whitespace-nowrap select-none", c.align === "center" ? "text-center" : c.align === "right" ? "text-right" : "text-left", c.sort && "cursor-pointer hover:text-app")} onClick={() => c.sort && setSort({ col: c.sort, desc: sort.col === c.sort ? !sort.desc : false })}>
                         <span className="inline-flex items-center gap-1">
                           {c.label}
                           {sort.col === c.sort && (sort.desc ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />)}
@@ -278,8 +373,10 @@ export default function Browse() {
                           <div className="w-1.5 h-9" style={{ background: FLAG_COLORS[r.flags] || "transparent" }} />
                         </td>
                         {visibleCols.map((c) => (
-                          <td key={c.key} className={cx("px-3 py-2 border-b border-app max-w-80 truncate", c.cls)}>
-                            {c.key === "tags" ? (
+                          <td key={c.key} className={cx("px-3 py-2 border-b border-app max-w-80 truncate", c.align === "center" ? "text-center" : c.align === "right" && "text-right", c.cls)}>
+                            {c.key === "state" ? (
+                              <span role="img" aria-label={STATES[r.state].label} title={STATES[r.state].label} className={cx("inline-block size-2.5 rounded-full align-middle", STATES[r.state].cls)} />
+                            ) : c.key === "tags" ? (
                               <span className="flex gap-1">
                                 {r.tags.slice(0, 3).map((t) => (
                                   <Badge key={t}>{t}</Badge>
@@ -310,13 +407,15 @@ export default function Browse() {
       <Modal open={modal === "editor" && !!single} onClose={() => setModal(null)} title="Edit" wide>
         {single && <SideEditor row={single} mode={mode} onSaved={() => search(0)} compact />}
       </Modal>
+      {dupOpen && <DuplicateDialog count={selIds.length} what={mode === "notes" ? "note" : "card"} value={placement} onChange={setPlacement} onClose={() => setDupOpen(false)} onOk={() => duplicate(placement)} />}
+      {layoutCards && <DisplayOrderDialog cardIds={layoutCards} onClose={() => setLayoutCards(null)} onDone={() => search(0)} />}
       {modal === "deck" && <ChangeDeckDialog onClose={() => setModal(null)} onPick={(deckId) => cardAct({ action: "setDeck", deckId }, "Moved")} />}
       {(modal === "tags-add" || modal === "tags-remove") && (
         <TagsDialog
           remove={modal === "tags-remove"}
           onClose={() => setModal(null)}
           onApply={async (tags) => {
-            await api.post("/api/notes/tags", modal === "tags-add" ? { noteIds: selNoteIds(), add: tags } : { noteIds: selNoteIds(), remove: tags });
+            await api.post("/api/notes/tags" + H, modal === "tags-add" ? { noteIds: selNoteIds(), add: tags } : { noteIds: selNoteIds(), remove: tags });
             toast("Tags updated", "success");
             search(0);
           }}
@@ -353,6 +452,10 @@ function BrowseSidebar({ onSearch, current }: { onSearch: (q: string) => void; c
   const decks = useApi(() => api.get<{ id: number; name: string; kind: number }[]>("/api/decks/list"), [], { live: ["decks"] });
   const nts = useApi(() => api.get<{ id: number; name: string }[]>("/api/notetypes"), [], { live: ["notetypes"] });
   const tags = useApi(() => api.get<string[]>("/api/tags"), [], { live: ["notes", "import"] });
+  const layouts = useApi(() => api.get<{ notetypeId: number; notetype: string; layouts: { notetypeId: number; name: string; isDefault: boolean }[] }[]>("/api/layouts"), [], { live: ["notetypes", "cards", "notes"] });
+  // a layout is a copy of its note type, so filtering by layout is a note-type search on the exact name
+  const ntQuery = (name: string) => `note:"${name.replace(/[\\"*_]/g, "\\$&")}"`;
+  const ntName = (id: number) => nts.data?.find((n) => n.id === id)?.name;
   const Item = ({ q, label, icon, depth = 0 }: { q: string; label: React.ReactNode; icon?: React.ReactNode; depth?: number }) => (
     <button onClick={() => onSearch(q)} className={cx("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-left truncate", current === q ? "bg-panel-2 text-app font-medium" : "text-muted hover:text-app hover:bg-panel-2")} style={{ paddingLeft: 8 + depth * 12 }}>
       {icon && <span className="[&>svg]:size-3.5 shrink-0">{icon}</span>}
@@ -376,14 +479,20 @@ function BrowseSidebar({ onSearch, current }: { onSearch: (q: string) => void; c
         <Item q="edited:1" label="Edited today" />
       </Section>
       <Section title="Card state">
-        <Item q="is:new" label="New" icon={<span className="block size-2 rounded-full bg-blue-500" />} />
-        <Item q="is:learn" label="Learning" icon={<span className="block size-2 rounded-full bg-orange-500" />} />
-        <Item q="is:review" label="Review" icon={<span className="block size-2 rounded-full bg-green-600" />} />
-        <Item q="is:due" label="Due" icon={<span className="block size-2 rounded-full bg-green-400" />} />
-        <Item q="is:suspended" label="Suspended" icon={<span className="block size-2 rounded-full bg-amber-400" />} />
-        <Item q="is:buried" label="Buried" icon={<span className="block size-2 rounded-full bg-zinc-400" />} />
-        <Item q="tag:marked" label="Marked" icon={<span className="block size-2 rounded-full bg-amber-500" />} />
-        <Item q="tag:leech" label="Leeches" icon={<span className="block size-2 rounded-full bg-red-500" />} />
+        {(
+          [
+            ["is:new", "New", "new"],
+            ["is:learn", "Learning", "learning"],
+            ["is:review", "Review", "review"],
+            ["is:due", "Due", "due"],
+            ["is:suspended", "Suspended", "suspended"],
+            ["is:buried", "Buried", "buried"],
+            ["tag:marked", "Marked", "marked"],
+            ["tag:leech", "Leeches", "leech"],
+          ] as const
+        ).map(([q, label, state]) => (
+          <Item key={q} q={q} label={label} icon={<span className={cx("block size-2 rounded-full", STATES[state].cls)} />} />
+        ))}
       </Section>
       <Section title="Flags">
         {FLAG_NAMES.slice(1).map((n, i) => (
@@ -400,6 +509,22 @@ function BrowseSidebar({ onSearch, current }: { onSearch: (q: string) => void; c
           <Item key={n.id} q={`note:"${n.name}"`} label={n.name} />
         ))}
       </Section>
+      {!!layouts.data?.length && (
+        <Section title="Display order">
+          {layouts.data.map((f) => {
+            const names = f.layouts.map((l) => ntName(l.notetypeId)).filter((n): n is string => !!n);
+            return (
+              <div key={f.notetypeId}>
+                <Item q={names.length > 1 ? `(${names.map(ntQuery).join(" OR ")})` : ntQuery(f.notetype)} label={f.notetype} />
+                {f.layouts.map((l) => {
+                  const name = ntName(l.notetypeId);
+                  return name ? <Item key={l.notetypeId} q={ntQuery(name)} label={l.name} depth={1} /> : null;
+                })}
+              </div>
+            );
+          })}
+        </Section>
+      )}
       <Section title="Tags">
         {tags.data?.length ? tags.data.map((t) => <Item key={t} q={`tag:"${t}"`} label={t.split("::").pop()} depth={t.split("::").length - 1} />) : <div className="px-2 text-xs text-muted">No tags</div>}
       </Section>
@@ -427,7 +552,7 @@ function SideEditor({ row, mode, onSaved, compact }: { row: BrowseRow; mode: str
   const save = useCallback(async () => {
     if (!note || !dirty) return;
     try {
-      await api.put(`/api/notes/${note.id}`, { fields, tags });
+      await api.put(`/api/notes/${note.id}${H}`, { fields, tags });
       setDirty(false);
       onSaved();
       toast("Saved", "success");
@@ -568,7 +693,7 @@ function FindReplaceDialog({ onClose, noteIds, onDone }: { onClose: () => void; 
   const toast = useToast();
   const run = async () => {
     try {
-      const r = await api.post<{ changed: number }>("/api/notes/find-replace", { noteIds, find, replace, regex, matchCase, field: field || null });
+      const r = await api.post<{ changed: number }>("/api/notes/find-replace" + H, { noteIds, find, replace, regex, matchCase, field: field || null });
       toast(`${r.changed} notes updated`, "success");
       onDone();
       onClose();
@@ -608,3 +733,42 @@ function FindReplaceDialog({ onClose, noteIds, onDone }: { onClose: () => void; 
 }
 
 void X;
+
+function DuplicateDialog({ count, what, value, onChange, onClose, onOk }: { count: number; what: string; value: Placement; onChange: (p: Placement) => void; onClose: () => void; onOk: () => void }) {
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Duplicate ${count === 1 ? `this ${what}` : `${count.toLocaleString()} ${what}s`}`}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={onOk} autoFocus>
+            Duplicate
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-[13px] text-muted">Each copy is a new note with the same fields and tags, in the same deck, starting as new cards. Where should the copies go?</p>
+        <div className="rounded-xl border border-app divide-y divide-[var(--border)]" role="radiogroup" aria-label="Where the copies go">
+          {PLACEMENTS.map((p) => (
+            <LayoutRow key={p.value} checked={value === p.value} onSelect={() => onChange(p.value)} title={p.title}>
+              <span className="block text-xs text-muted">{p.note}</span>
+              <span className="mt-1.5 flex flex-wrap gap-1" aria-hidden>
+                {p.seq.map((t, i) => (
+                  <span key={i} className={cx("min-w-6 rounded px-1 py-px text-center text-[11px] tnum", t.endsWith("′") ? "bg-brand-500/15 text-brand-700 dark:text-brand-300 font-semibold" : "bg-panel-2 text-faint")}>
+                    {t}
+                  </span>
+                ))}
+              </span>
+            </LayoutRow>
+          ))}
+        </div>
+        <p className="text-xs text-faint">Example: duplicating 2, 4 and 5. This sets the # order and the order new cards are studied in. The copies are selected afterwards.</p>
+      </div>
+    </Modal>
+  );
+}

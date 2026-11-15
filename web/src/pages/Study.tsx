@@ -326,7 +326,7 @@ export default function Study() {
         <>
           <div className="flex-1 min-h-0 sm:px-6 sm:pt-6">
             <div className="relative mx-auto h-full max-w-[860px] overflow-hidden bg-panel sm:rounded-xl sm:border sm:border-app">
-              <CardFrame ref={frame} key={`${card.id}-${showAnswer ? "a" : "q"}`} html={zoomed(showAnswer ? (answerPage ?? card.answer) : card.question)} onKey={handleKey} onMessage={(type) => type === "showAnswer" && reveal()} className="absolute inset-0 w-full h-full border-0" />
+              <CardFrame ref={frame} key={`${card.id}-${showAnswer ? "a" : "q"}`} html={zoomed(showAnswer ? (answerPage ?? card.answer) : card.question)} onKey={handleKey} onMessage={(type) => (type === "showAnswer" ? reveal() : type === "doubleTap" && state.undo.available && doUndo())} className="absolute inset-0 w-full h-full border-0" />
             </div>
           </div>
           <footer className="border-t border-app bg-panel sm:border-0 sm:bg-transparent px-3 sm:px-6 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-6">

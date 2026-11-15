@@ -1,6 +1,5 @@
 package com.betteranki.app.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -8,7 +7,9 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 
 val Brand = Color(0xFF6366F1)
@@ -70,17 +71,21 @@ private val Dark = darkColorScheme(
 )
 
 @Composable
-fun BetterAnkiTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+fun BetterAnkiTheme(dark: Boolean, font: FontFamily = FontFamily.Default, content: @Composable () -> Unit) {
     val base = Typography()
-    androidx.compose.runtime.CompositionLocalProvider(LocalAppColors provides if (dark) DarkAppColors else LightAppColors) {
-        MaterialTheme(
-            colorScheme = if (dark) Dark else Light,
-            typography = base.copy(
-                headlineMedium = base.headlineMedium.copy(fontSize = 26.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp),
-                titleLarge = base.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                labelSmall = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium),
-            ),
-            content = content,
-        )
+    // line height relative to the size, so text that sets its own fontSize keeps sensible spacing
+    fun TextStyle.f() = copy(fontFamily = font, lineHeight = 1.4.em)
+    val type = base.copy(
+        displayLarge = base.displayLarge.f(), displayMedium = base.displayMedium.f(), displaySmall = base.displaySmall.f(),
+        headlineLarge = base.headlineLarge.f(),
+        headlineMedium = base.headlineMedium.copy(fontSize = 26.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp, fontFamily = font, lineHeight = 1.25.em),
+        headlineSmall = base.headlineSmall.f(),
+        titleLarge = base.titleLarge.copy(fontWeight = FontWeight.SemiBold, fontFamily = font, lineHeight = 1.3.em), titleMedium = base.titleMedium.f(), titleSmall = base.titleSmall.f(),
+        bodyLarge = base.bodyLarge.f(), bodyMedium = base.bodyMedium.f(), bodySmall = base.bodySmall.f(),
+        labelLarge = base.labelLarge.f(), labelMedium = base.labelMedium.f(),
+        labelSmall = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium, fontFamily = font, lineHeight = 1.4.em),
+    )
+    androidx.compose.runtime.CompositionLocalProvider(LocalAppColors provides if (dark) DarkAppColors else LightAppColors, LocalDark provides dark) {
+        MaterialTheme(colorScheme = if (dark) Dark else Light, typography = type, content = content)
     }
 }

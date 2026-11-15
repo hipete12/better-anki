@@ -12,7 +12,12 @@ export interface PageOptions {
   side: "question" | "answer";
   platform?: string;
   questionHtml?: string; // used to determine answer-only sounds
+  /** Offline pages: write night-mode class placeholders the device fills in (see NIGHT_TOKENS). */
+  nightTokens?: boolean;
 }
+
+/** Placeholders in offline card pages; the device replaces them with the night classes or "". */
+export const NIGHT_TOKENS = { html: "__BA_NIGHT_HTML__", card: "__BA_NIGHT_CARD__" } as const;
 
 const VIDEO_EXT = /\.(mp4|webm|mkv|mov|ogv|avi|m4v)$/i;
 
@@ -75,7 +80,7 @@ export function buildCardPage(o: PageOptions): string {
     autoplayFrom = o.html.includes(o.questionHtml) || /<hr id=["']?answer/.test(o.html) ? qCount : 0;
   }
   const needsMath = /\\\(|\\\[|\[\$\]|\[\$\$\]|\[latex\]/.test(o.html);
-  const classes = ["card", `card${o.ord + 1}`, o.platform ? `ba-${o.platform}` : "", o.night ? "nightMode night_mode" : ""]
+  const classes = ["card", `card${o.ord + 1}`, o.platform ? `ba-${o.platform}` : "", o.nightTokens ? NIGHT_TOKENS.card : o.night ? "nightMode night_mode" : ""]
     .filter(Boolean)
     .join(" ");
   const state = {
@@ -86,7 +91,7 @@ export function buildCardPage(o: PageOptions): string {
     side: o.side,
   };
   return `<!doctype html>
-<html class="${o.night ? "night-mode" : ""}"><head><meta charset="utf-8">
+<html class="${o.nightTokens ? NIGHT_TOKENS.html : o.night ? "night-mode" : ""}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="${escapeHtml(o.mediaBase)}">
 <style>${BASE_CSS}</style>
@@ -145,6 +150,47 @@ document.addEventListener('keydown',function(e){
   post({type:'key',key:e.key,code:e.code,ctrl:e.ctrlKey,meta:e.metaKey,shift:e.shiftKey,alt:e.altKey});
   if(e.key===' '||e.key==='Enter') e.preventDefault();
 });
+// touch gestures on the card, for the apps to act on: 'tap:<zone 0-8, rows of three>', 'doubleTap',
+// 'swipe:<left|right|up|down>'. Not on links, sounds or inputs, or while selecting text. Vertical swipes only
+// count when the card didn't scroll. The Android app adds this same script itself (for older servers and
+// downloaded decks) and stands down when the page already has it.
+window.__baGestures=1;
+var touch=null, lastTap=null;
+function control(el){ return el&&el.closest&&el.closest('a,button,input,textarea,select,summary,label,[contenteditable],.soundLink,.hint'); }
+function swipe(s,x,y){
+  var dx=x-s.x, dy=y-s.y, ax=Math.abs(dx), ay=Math.abs(dy);
+  if(Date.now()-s.at>1000||(s.el&&s.el.closest&&s.el.closest('input,textarea,[contenteditable]'))) return;
+  if(ax>50&&ax>1.5*ay) post({type:'swipe:'+(dx<0?'left':'right')});
+  else if(ay>50&&ay>1.5*ax&&window.scrollY===s.sy) post({type:'swipe:'+(dy<0?'up':'down')});
+}
+document.addEventListener('touchstart',function(e){
+  if(e.touches.length>1){ touch=null; lastTap=null; return; }
+  var t=e.touches[0]; touch={x:t.clientX,y:t.clientY,lx:t.clientX,ly:t.clientY,at:Date.now(),sy:window.scrollY,el:e.target,moved:false};
+},{passive:true});
+document.addEventListener('touchmove',function(e){
+  var t=e.touches[0]; if(!touch||!t) return;
+  touch.lx=t.clientX; touch.ly=t.clientY;
+  if(Math.abs(t.clientX-touch.x)>10||Math.abs(t.clientY-touch.y)>10) touch.moved=true;
+},{passive:true});
+// the browser may cancel a touch it takes over (to scroll or overscroll): a swipe still counts
+document.addEventListener('touchcancel',function(){ var s=touch; touch=null; lastTap=null; if(s&&s.moved) swipe(s,s.lx,s.ly); },{passive:true});
+document.addEventListener('touchend',function(e){
+  var s=touch; touch=null; var t=e.changedTouches&&e.changedTouches[0];
+  if(!s||!t||e.touches.length) return;
+  var sel=window.getSelection&&window.getSelection(); if(sel&&String(sel).length){ lastTap=null; return; }
+  if(s.moved){ lastTap=null; swipe(s,t.clientX,t.clientY); return; }
+  if(Date.now()-s.at>500||control(s.el)){ lastTap=null; return; } // a long press, or a link/button/input
+  var now=Date.now();
+  if(lastTap&&now-lastTap.at<350&&Math.abs(t.clientX-lastTap.x)<40&&Math.abs(t.clientY-lastTap.y)<40){
+    lastTap=null; e.preventDefault(); post({type:'doubleTap'}); return;
+  }
+  lastTap={at:now,x:t.clientX,y:t.clientY};
+  var w=window.innerWidth||1, h=window.innerHeight||1;
+  post({type:'tap:'+((t.clientY<h/3?0:t.clientY<2*h/3?1:2)*3+(t.clientX<w/3?0:t.clientX<2*w/3?1:2))});
+});
+// tell the app when an input (the typed answer) has focus, so its keyboard shortcuts stay out of the way
+document.addEventListener('focusin',function(e){ if(e.target&&e.target.matches&&e.target.matches('input,textarea,[contenteditable]')) post({type:'inputFocus'}); });
+document.addEventListener('focusout',function(e){ if(e.target&&e.target.matches&&e.target.matches('input,textarea,[contenteditable]')) post({type:'inputBlur'}); });
 document.addEventListener('click',function(e){
   var a=e.target&&e.target.closest&&e.target.closest('a[href]');
   if(a&&!a.classList.contains('soundLink')&&!a.classList.contains('hint')){ var h=a.getAttribute('href'); if(h&&/^https?:/i.test(h)){ e.preventDefault(); post({type:'openLink',url:h}); } }

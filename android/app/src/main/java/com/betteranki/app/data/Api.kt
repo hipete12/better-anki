@@ -26,7 +26,8 @@ class ApiException(val status: Int, message: String) : Exception(message)
 @Serializable data class DeckNode(val id: Long, val name: String, val shortName: String, val kind: Int, val collapsed: Boolean, val configId: Long, val counts: Counts, val total: Int, val children: List<DeckNode>)
 @Serializable data class Today(val cards: Int, val timeMs: Long, val again: Int, val learn: Int = 0, val review: Int = 0, val mature: Int = 0, val matureCorrect: Int = 0)
 @Serializable data class HomeCards(val total: Int, val mature: Int)
-@Serializable data class HomeSummary(val today: Today, val streak: Int, val longestStreak: Int, val retention30: Double? = null, val cards: HomeCards)
+@Serializable data class TrendDay(val day: Int, val date: String, val learning: Int, val young: Int, val mature: Int)
+@Serializable data class HomeSummary(val today: Today, val streak: Int, val longestStreak: Int, val retention30: Double? = null, val cards: HomeCards, val trend: List<TrendDay> = emptyList())
 @Serializable data class DeckTree(val tree: List<DeckNode>, val today: Today, val currentDeckId: Long)
 @Serializable data class AnswerButton(val ease: Int, val label: String, val secs: Long)
 @Serializable data class CardOptions(val showTimer: Boolean = false, val capAnswerSecs: Int = 60, val autoplay: Boolean = true, val autoAdvanceQuestionSecs: Double = 0.0, val autoAdvanceAnswerSecs: Double = 0.0, val autoAdvanceAnswerAction: Int = 0)
@@ -49,9 +50,27 @@ class ApiException(val status: Int, message: String) : Exception(message)
 @Serializable data class AddResult(val id: Long, val cards: Int)
 @Serializable data class NoteCard(val id: Long, val ord: Int, val did: Long, val deck: String? = null, val template: String? = null)
 @Serializable data class NoteData(val id: Long, val notetypeId: Long, val notetype: Notetype, val fields: List<String>, val tags: List<String>, val cards: List<NoteCard>)
-@Serializable data class BrowseRow(val id: Long, val nid: Long, val sortField: String, val question: String, val answer: String, val deck: String, val notetype: String, val due: String, val ivl: String, val queue: Int, val flags: Int, val marked: Boolean, val tags: List<String>)
-@Serializable data class BrowseResult(val total: Int, val rows: List<BrowseRow>)
-@Serializable data class DeckOverview(val counts: Counts, val buried: Int, val configName: String? = null, val deck: OverviewDeck)
+@Serializable data class BrowseRow(
+    val id: Long, val nid: Long, val sortField: String, val question: String, val answer: String, val deck: String, val notetype: String, val due: String, val ivl: String,
+    val queue: Int, val flags: Int, val marked: Boolean, val tags: List<String>,
+    val order: Int = 0, val state: String = "new", val layout: String = "Default", val template: String = "", val ease: String = "",
+    val reps: Int = 0, val lapses: Int = 0, val created: String = "", val modified: String = "",
+)
+@Serializable data class BrowseResult(val total: Int, val rows: List<BrowseRow>, val ids: List<Long> = emptyList())
+@Serializable data class LayoutRef(val notetypeId: Long, val name: String, val isDefault: Boolean, val cards: Int = 0)
+@Serializable data class LayoutFamily(val notetypeId: Long, val notetype: String, val layouts: List<LayoutRef>)
+@Serializable data class LayoutOption(val notetypeId: Long, val name: String, val isDefault: Boolean, val qfmt: String, val afmt: String, val selected: Int)
+@Serializable data class LayoutOptions(val ok: Boolean, val reason: String? = null, val notetype: String = "", val cardType: String = "", val fields: List<String> = emptyList(), val options: List<LayoutOption> = emptyList())
+@Serializable data class Changed(val changed: Int = 0)
+@Serializable data class Duplicated(val notes: Int, val cards: Int, val noteIds: List<Long> = emptyList(), val cardIds: List<Long> = emptyList())
+/** Browse undo/redo: the labels of the steps that would be undone and redone. */
+@Serializable data class HistoryStatus(val undo: String? = null, val redo: String? = null, val done: String? = null)
+@Serializable data class DeckTotals(val total: Int, val new: Int, val suspended: Int, val buried: Int, val young: Int, val mature: Int, val learning: Int)
+@Serializable data class DeckLimits(val newLeft: Int, val revLeft: Int)
+@Serializable data class DeckOverview(
+    val counts: Counts, val buried: Int, val configName: String? = null, val deck: OverviewDeck,
+    val totals: DeckTotals? = null, val limits: DeckLimits? = null, val trend: List<TrendDay> = emptyList(),
+)
 @Serializable data class OverviewDeck(val id: Long, val name: String, val kind: Int, val description: String = "")
 @Serializable data class SessionInfo(val id: String, val device: String, val created: Long, val lastSeen: Long, val lastIp: String, val current: Boolean? = null)
 @Serializable data class RetentionRow(val label: String, val young: Double? = null, val mature: Double? = null, val total: Double? = null, val count: Int)
@@ -69,6 +88,8 @@ class ApiException(val status: Int, message: String) : Exception(message)
 class Api(var server: String, var token: String?) {
     val json = Json { ignoreUnknownKeys = true; explicitNulls = false; encodeDefaults = true }
     var onUnauthorized: (() -> Unit)? = null
+    /** Told whether the server answered (true) or couldn't be reached (false), to drive offline mode. */
+    var onReachability: ((Boolean) -> Unit)? = null
 
     suspend fun <T> request(method: String, path: String, body: JsonElement?, ser: KSerializer<T>, timeoutMs: Int = 30000): T = withContext(Dispatchers.IO) {
         val conn = try {
@@ -89,6 +110,7 @@ class Api(var server: String, var token: String?) {
                 conn.outputStream.use { it.write(body.toString().toByteArray()) }
             }
             val code = conn.responseCode
+            onReachability?.invoke(true)
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use(BufferedReader::readText) ?: ""
             if (code !in 200..299) {
                 val msg = try {
@@ -101,6 +123,7 @@ class Api(var server: String, var token: String?) {
             }
             json.decodeFromString(ser, text.ifEmpty { "{}" })
         } catch (e: IOException) {
+            onReachability?.invoke(false)
             throw ApiException(0, "Can't reach the server at $server")
         } finally {
             conn.disconnect()
@@ -116,7 +139,7 @@ class Api(var server: String, var token: String?) {
      * Server-sent change events over an authenticated streaming request.
      * Blocks (on IO) until the connection drops; invoke in a coroutine loop.
      */
-    suspend fun streamEvents(onChange: (List<String>) -> Unit) = withContext(Dispatchers.IO) {
+    suspend fun streamEvents(onOpen: () -> Unit = {}, onChange: (List<String>) -> Unit) = withContext(Dispatchers.IO) {
         val conn = URL(server.trimEnd('/') + "/api/events").openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 8000
@@ -124,6 +147,7 @@ class Api(var server: String, var token: String?) {
             conn.setRequestProperty("Authorization", "Bearer $token")
             conn.setRequestProperty("Accept", "text/event-stream")
             if (conn.responseCode != 200) throw ApiException(conn.responseCode, "events")
+            onOpen()
             val reader = conn.inputStream.bufferedReader()
             var event = ""
             while (true) {
